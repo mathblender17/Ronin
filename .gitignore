@@ -1,0 +1,4 @@
+.env
+__pycache__/
+outputs/*.md
+!outputs/example_report.md
