@@ -1,0 +1,10 @@
+# Render Blueprint: a read-only showcase of saved Ronin trails (no Gemini key needed).
+services:
+  - type: web
+    name: ronin
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: RONIN_READ_ONLY
+        value: "1"
