@@ -188,6 +188,29 @@ kbd { font: 9px var(--mono); color: #777367; border: 1px solid #49453d; padding:
 .canvas-expand-hint { position: static; display: flex; gap: 8px; align-items: center; border: 0; background: transparent; max-width: min(520px, 70vw); overflow: hidden; text-overflow: ellipsis; padding: 7px 11px; border: 1px solid #4b4b3e; background: rgba(34, 35, 29, .92); color: #d3a982; font: 9px var(--mono); letter-spacing: .8px; white-space: nowrap; cursor: pointer; }
 .canvas-expand-hint:hover { color: #efc29a; border-color: #a1795b; }
 .canvas-expand-hint.is-hint { border-color: transparent; background: transparent; color: #8f8b7d; cursor: default; }
+.view-switch { display: flex; border: 1px solid #4b4b3e; background: rgba(34, 35, 29, .92); }
+.view-switch button { border: 0; padding: 7px 11px; color: #8f8b7d; font: 8px var(--mono); letter-spacing: .8px; text-transform: uppercase; background: transparent; cursor: pointer; }
+.view-switch button + button { border-left: 1px solid #4b4b3e; }
+.view-switch button:hover { color: #e1d7c5; }
+.view-switch button.is-active { color: #efc29a; background: #2f2a23; }
+.view-switch button:focus-visible { outline: 2px solid #d97857; outline-offset: -2px; }
+/* Markers keep screen-pixel sizes at any zoom: each length divides by --zoom, which GraphCanvas sets from the live viewport. */
+.concept-marker { --hit: calc(28px / var(--zoom)); position: absolute; left: calc(50% - var(--hit) / 2); top: calc(50% - var(--hit) / 2); display: flex; align-items: center; height: var(--hit); min-width: var(--hit); padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.concept-marker:focus-visible { outline: calc(2px / var(--zoom)) solid #d97857; outline-offset: calc(3px / var(--zoom)); }
+.marker-hit { flex: 0 0 var(--hit); width: var(--hit); height: var(--hit); display: grid; place-items: center; }
+.marker-dot { width: calc(9px / var(--zoom)); height: calc(9px / var(--zoom)); border: calc(1px / var(--zoom)) solid #7d7a6c; border-radius: 50%; background: #20211d; transition: transform .19s, border-color .19s, background .19s, box-shadow .19s; }
+.concept-marker:hover .marker-dot { border-color: #c9a07f; transform: scale(1.4); }
+.concept-marker.was-explored .marker-dot { border-color: #8f7a62; background: #4b4234; }
+.concept-marker.on-path .marker-dot { border-color: #b27857; background: #5c4a3c; }
+.concept-marker.is-selected .marker-dot { border-color: #e68563; background: #d97857; box-shadow: 0 0 0 calc(4px / var(--zoom)) rgba(217, 120, 87, .22); transform: scale(1.3); }
+/* A label may run at most to the next column (--column is the layout step, in world pixels), so it never covers a neighbouring marker. */
+.marker-label { display: none; max-width: min(calc(200px / var(--zoom)), calc(var(--column) * 1px - 24px / var(--zoom))); overflow: hidden; color: #b9b19d; font-family: var(--serif); font-size: calc(13px / var(--zoom)); font-weight: 500; line-height: 1.2; white-space: nowrap; text-overflow: ellipsis; }
+.concept-marker.is-labelled .marker-label, .concept-marker:hover .marker-label, .concept-marker:focus-visible .marker-label { display: block; }
+.concept-marker:hover .marker-label, .concept-marker:focus-visible .marker-label { padding: calc(3px / var(--zoom)) calc(7px / var(--zoom)); border: calc(1px / var(--zoom)) solid #4b4b3e; background: rgba(34, 35, 29, .95); color: #d8cfbc; }
+.concept-marker.is-labelled.on-path .marker-label { color: #d9cdb6; }
+.concept-marker.is-labelled.is-selected .marker-label { color: #f0e6d2; }
+.marker-count { margin-left: calc(4px / var(--zoom)); color: #8f8b7d; font-family: var(--mono); font-size: calc(10px / var(--zoom)); line-height: 1; white-space: nowrap; }
+.concept-marker.is-selected .marker-count { color: #d3a982; }
 .loading-cover { position: absolute; inset: 54px 0 35px; z-index: 7; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 11px; background: rgba(23, 24, 21, .72); backdrop-filter: blur(3px); color: #c2b69f; font: 10px var(--mono); }
 .loading-mark { display: grid; place-items: center; width: 54px; height: 54px; border: 1px solid #7f604a; border-radius: 50%; color: var(--rust); }
 
