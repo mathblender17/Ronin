@@ -6,12 +6,13 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from . import ai
-from .database import Base, SessionLocal, engine
+from .database import ROOT_DIR, Base, SessionLocal, engine
 from .models import Edge, Node, RabbitHole, Source, utcnow
 from .schemas import (
     CreateRequest,
@@ -35,6 +36,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 _expansion_lock = Lock()
+# Showcase deployments serve a saved snapshot: browsing works, but nothing can be created,
+# expanded or deleted, so no AI calls are made and visitors cannot change the data.
+READ_ONLY = os.getenv("RONIN_READ_ONLY", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _require_writable() -> None:
+    if READ_ONLY:
+        raise HTTPException(status_code=403, detail="This Ronin is a read-only showcase. Run it locally to start your own trails.")
 
 
 def get_db():
@@ -193,7 +202,7 @@ def _save_concept(db: Session, hole: RabbitHole, parent: Node, concept: ai.Gener
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "ai_configured": bool(os.getenv("GEMINI_API_KEY", "").strip())}
+    return {"status": "ok", "ai_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()), "read_only": READ_ONLY}
 
 
 @app.get("/api/rabbit-holes", response_model=list[RabbitHoleSummary])
@@ -212,6 +221,7 @@ def list_rabbit_holes(db: Session = Depends(get_db)):
 
 @app.post("/api/rabbit-holes", response_model=GraphOut, status_code=status.HTTP_201_CREATED)
 def create_rabbit_hole(body: CreateRequest, db: Session = Depends(get_db)):
+    _require_writable()
     try:
         layer = ai.generate_initial(body.question)
     except ai.AIServiceError as exc:
@@ -256,7 +266,7 @@ def visit_node(hole_id: str, node_id: str, db: Session = Depends(get_db)):
     node = next((node for node in hole.nodes if node.id == node_id), None)
     if not node:
         raise HTTPException(status_code=404, detail="This concept no longer exists in the rabbit hole.")
-    if node.explored_at is None:
+    if node.explored_at is None and not READ_ONLY:
         node.explored_at = utcnow()
         hole.updated_at = utcnow()
         db.commit()
@@ -265,6 +275,7 @@ def visit_node(hole_id: str, node_id: str, db: Session = Depends(get_db)):
 
 @app.post("/api/rabbit-holes/{hole_id}/nodes/{node_id}/expand", response_model=ExpansionOut)
 def expand_node(hole_id: str, node_id: str, body: ExpandRequest | None = None, db: Session = Depends(get_db)):
+    _require_writable()
     direction = body.direction if body else None
     with _expansion_lock:
         hole = _load_hole(db, hole_id)
@@ -315,8 +326,15 @@ def expand_node(hole_id: str, node_id: str, body: ExpandRequest | None = None, d
 
 @app.delete("/api/rabbit-holes/{hole_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_rabbit_hole(hole_id: str, db: Session = Depends(get_db)):
+    _require_writable()
     hole = db.get(RabbitHole, hole_id)
     if not hole:
         raise HTTPException(status_code=404, detail="This rabbit hole could not be found.")
     db.delete(hole)
     db.commit()
+
+
+# In the deployed container the built frontend is served by the API itself (one service, one URL).
+# Locally, Vite serves the frontend and dist/ may not exist.
+if (ROOT_DIR / "dist" / "index.html").exists():
+    app.mount("/", StaticFiles(directory=ROOT_DIR / "dist", html=True), name="frontend")

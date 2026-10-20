@@ -294,3 +294,26 @@ def test_source_metrics_distinguish_unique_sources_from_sourced_concepts(client:
     stored_urls = {source["url"] for node in graph["nodes"] for source in node["sources"]}
     assert graph["metrics"]["unique_sources"] == len(stored_urls) == 1
     assert graph["metrics"]["sourced_nodes"] == sum(1 for node in graph["nodes"] if node["sources"]) == 2
+
+
+def test_read_only_showcase_serves_graphs_but_refuses_changes(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend import main
+
+    monkeypatch.setattr(ai, "generate_initial", lambda _question: initial_layer())
+    graph = client.post("/api/rabbit-holes", json={"question": "Why do humans seek power?"}).json()
+    child = next(node for node in graph["nodes"] if node["parent_id"])
+
+    def no_ai(**_kwargs):
+        raise AssertionError("read-only mode must not call the AI")
+
+    monkeypatch.setattr(main, "READ_ONLY", True)
+    monkeypatch.setattr(ai, "generate_initial", no_ai)
+    monkeypatch.setattr(ai, "generate_expansion", no_ai)
+    assert client.get("/api/health").json()["read_only"] is True
+    assert client.post("/api/rabbit-holes", json={"question": "Another question"}).status_code == 403
+    assert client.post(f"/api/rabbit-holes/{graph['id']}/nodes/{child['id']}/expand", json={}).status_code == 403
+    assert client.delete(f"/api/rabbit-holes/{graph['id']}").status_code == 403
+    visited = client.post(f"/api/rabbit-holes/{graph['id']}/nodes/{child['id']}/visit")
+    assert visited.status_code == 200
+    assert visited.json()["metrics"]["explored_nodes"] == graph["metrics"]["explored_nodes"]
+    assert client.get(f"/api/rabbit-holes/{graph['id']}").json()["metrics"]["node_count"] == 6

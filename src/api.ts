@@ -20,7 +20,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ status: string; ai_configured: boolean }>('/api/health'),
+  health: () => request<{ status: string; ai_configured: boolean; read_only: boolean }>('/api/health'),
   list: () => request<RabbitHoleSummary[]>('/api/rabbit-holes'),
   create: (question: string) => request<Graph>('/api/rabbit-holes', { method: 'POST', body: JSON.stringify({ question }) }),
   get: (id: string) => request<Graph>(`/api/rabbit-holes/${id}`),

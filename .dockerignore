@@ -1,0 +1,11 @@
+.env
+.git
+.venv
+.runtime-venv
+.pnpm-store
+node_modules
+dist
+data
+outputs
+**/__pycache__
+**/.pytest_cache

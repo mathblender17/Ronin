@@ -430,3 +430,4 @@ kbd { font: 9px var(--mono); color: #777367; border: 1px solid #49453d; padding:
 .no-sources.is-root { font-style: normal; color: #9e9a8b; }
 .source-link small.citation { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; color: #9a9686; font: 9px/1.45 'DM Sans', sans-serif; }
 .react-flow__panel.pass-through, .react-flow__panel.pass-through * { pointer-events: none; }
+.showcase-note { max-width: 340px; margin: 0; color: #b9ab93; font-size: 11px; line-height: 1.6; }

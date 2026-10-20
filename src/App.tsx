@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Archive, ArrowDownRight, ArrowLeft, ArrowRight, BookOpen, ChevronDown,
   Compass, ExternalLink, GitBranch, LoaderCircle, Menu, MoreHorizontal,
@@ -23,6 +23,7 @@ export default function App() {
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [aiConfigured, setAiConfigured] = useState(true)
+  const [readOnly, setReadOnly] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
   const [mobileDetail, setMobileDetail] = useState(false)
   const [search, setSearch] = useState('')
@@ -38,12 +39,17 @@ export default function App() {
 
   useEffect(() => {
     refreshArchive()
-    api.health().then((data) => setAiConfigured(data.ai_configured)).catch(() => setAiConfigured(false))
+    api.health().then((data) => {
+      setAiConfigured(data.ai_configured)
+      setReadOnly(data.read_only)
+      // A showcase has nothing to start; open on the saved trails instead.
+      if (data.read_only) setPage((current) => current === 'start' ? 'archive' : current)
+    }).catch(() => setAiConfigured(false))
   }, [refreshArchive])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n' && !readOnlyRef.current) {
         event.preventDefault()
         newHole()
       } else if (event.key === 'Escape') {
@@ -54,6 +60,8 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
+  const readOnlyRef = useRef(readOnly)
+  readOnlyRef.current = readOnly
 
   const openHole = useCallback(async (id: string) => {
     setError('')
@@ -98,13 +106,13 @@ export default function App() {
     setSelectedId(node.id)
     setMobileDetail(true)
     setDirection('')
-    if (!graph || node.explored) return
+    if (!graph || node.explored || readOnly) return
     try {
       const updated = await api.visit(graph.id, node.id)
       setGraph(updated)
       await refreshArchive()
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not save this visit.') }
-  }, [graph, refreshArchive])
+  }, [graph, readOnly, refreshArchive])
 
   const expandSelected = useCallback(async (followup?: string) => {
     if (!graph || !selected || busyNodeId) return
@@ -154,7 +162,7 @@ export default function App() {
           <button className="icon-button mobile-close" onClick={() => setMobileNav(false)} aria-label="Close menu"><X size={17} /></button>
         </div>
 
-        <button className="new-hole-button" onClick={newHole}><Plus size={16} strokeWidth={2.2} /><span>New rabbit hole</span><kbd>Ctrl N</kbd></button>
+        {!readOnly && <button className="new-hole-button" onClick={newHole}><Plus size={16} strokeWidth={2.2} /><span>New rabbit hole</span><kbd>Ctrl N</kbd></button>}
 
         <nav className="side-nav" aria-label="Main navigation">
           <button className={page === 'archive' ? 'nav-item active' : 'nav-item'} onClick={() => { setPage('archive'); setMobileNav(false) }}><Archive size={16} /><span>Archive</span><span className="nav-count">{holes.length}</span></button>
@@ -168,12 +176,12 @@ export default function App() {
             <button className="recent-open" onClick={() => openHole(hole.id)} title={hole.question}>
               <span className="recent-dot" /><span className="recent-text">{hole.title}</span>
             </button>
-            <button className="recent-delete" onClick={() => deleteHole(hole)} aria-label={`Delete ${hole.title}`} title="Delete trail"><Trash2 size={13} /></button>
+            {!readOnly && <button className="recent-delete" onClick={() => deleteHole(hole)} aria-label={`Delete ${hole.title}`} title="Delete trail"><Trash2 size={13} /></button>}
           </div>)}
           {!holes.length && <div className="sidebar-empty">Your trails will gather here.</div>}
         </div>
 
-        <div className="sidebar-footer"><span className="status-dot" /><span>{aiConfigured ? 'SAVED ON THIS DEVICE' : 'ADD GEMINI KEY TO BEGIN'}</span><span className="footer-mark" /></div>
+        <div className="sidebar-footer"><span className="status-dot" /><span>{readOnly ? 'READ-ONLY SHOWCASE' : aiConfigured ? 'SAVED ON THIS DEVICE' : 'ADD GEMINI KEY TO BEGIN'}</span><span className="footer-mark" /></div>
       </aside>
 
       <main className="main-column">
@@ -181,7 +189,7 @@ export default function App() {
           <div className="topbar-left"><button className="icon-button menu-toggle" onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu size={19} /></button>
             <span className="topbar-label">{page === 'archive' ? 'YOUR ARCHIVE' : page === 'recap' ? 'FIELD NOTES' : page === 'explore' ? 'EXPLORING' : 'A SPACE FOR CURIOSITY'}</span>
           </div>
-          <div className="topbar-right">{page === 'explore' && graph && <><span className="saved-indicator"><span /> SAVED LOCALLY</span><button className="topbar-action" onClick={() => setPage('recap')}><BookOpen size={14} /> Recap</button></>}</div>
+          <div className="topbar-right">{page === 'explore' && graph && <><span className="saved-indicator"><span /> {readOnly ? 'SHOWCASE SNAPSHOT' : 'SAVED LOCALLY'}</span><button className="topbar-action" onClick={() => setPage('recap')}><BookOpen size={14} /> Recap</button></>}</div>
         </header>
 
         {error && <div className="error-banner" role="alert"><span>{error}</span><button className="icon-button tiny" onClick={() => setError('')} aria-label="Dismiss"><X size={15} /></button></div>}
@@ -204,12 +212,12 @@ export default function App() {
 
         {page === 'explore' && graph && <>
           <div className="graph-heading"><div><div className="graph-kicker"><Compass size={13} /> YOUR OPEN QUESTION</div><h1>{graph.question}</h1>{graph.metrics.first_level_branches < 5 && <p className="graph-incomplete">This trail was saved with {graph.metrics.first_level_branches} of 5 first paths by an earlier version of Ronin.</p>}</div><button className="graph-menu" onClick={() => setPage('recap')}><span>{graph.metrics.first_level_branches} first paths · {graph.metrics.node_count} concepts</span><ChevronDown size={15} /></button></div>
-          <div className="canvas-shell"><ExplorerCanvas key={graph.id} graph={graph} selectedId={selectedId} busyNodeId={busyNodeId} focus={expandFocus} onSelect={selectNode} onExpand={expandSelected} /></div>
+          <div className="canvas-shell"><ExplorerCanvas key={graph.id} graph={graph} selectedId={selectedId} busyNodeId={busyNodeId} focus={expandFocus} onSelect={selectNode} onExpand={readOnly ? undefined : expandSelected} /></div>
           <div className="canvas-legend"><span><i className="legend-root" /> STARTING QUESTION</span><span><i className="legend-branch" /> A PATH TO FOLLOW</span><span className="legend-hint"><Network size={13} /> Drag to wander · scroll to zoom</span></div>
           {busy && <div className="loading-cover"><div className="loading-mark"><LoaderCircle className="spin" size={24} /></div><span>Reopening your trail…</span></div>}
         </>}
 
-        {page === 'archive' && <ArchiveView holes={filteredHoles} onOpen={openHole} onDelete={deleteHole} onNew={newHole} />}
+        {page === 'archive' && <ArchiveView holes={filteredHoles} onOpen={openHole} onDelete={readOnly ? undefined : deleteHole} onNew={readOnly ? undefined : newHole} />}
         {page === 'recap' && graph && <RecapView graph={graph} onBack={() => setPage('explore')} />}
       </main>
 
@@ -230,11 +238,16 @@ export default function App() {
                   ? <p className="no-sources is-root">Ronin searches for sources on each branch, not on the starting question.{graph.metrics.unique_sources ? ` ${graph.metrics.unique_sources} unique ${graph.metrics.unique_sources === 1 ? 'source is' : 'sources are'} linked across ${graph.metrics.sourced_nodes} ${graph.metrics.sourced_nodes === 1 ? 'branch' : 'branches'} of this map.` : ''}</p>
                   : <p className="no-sources">Search grounding returned no citation clearly tied to this concept, so none is shown.{graph.metrics.unique_sources ? ` ${graph.metrics.sourced_nodes} other ${graph.metrics.sourced_nodes === 1 ? 'concept has' : 'concepts have'} sources.` : ''}</p>}
             </section>
-            <div className="detail-actions">
+            {readOnly ? <div className="detail-actions">
+              {children.length > 0
+                ? <button className="explore-button" onClick={() => setExpandFocus((current) => ({ nodeId: selected.id, revision: (current?.revision ?? 0) + 1 }))}>Show these trails <ArrowRight size={15} /></button>
+                : <p className="showcase-note">This trail ends here in the showcase. Exploring further needs a local Ronin with a Gemini key.</p>}
+              {children.length > 0 && <div className="child-count-note"><GitBranch size={13} /> {children.length} saved {children.length === 1 ? 'path' : 'paths'} branch from here</div>}
+            </div> : <div className="detail-actions">
               <button className="explore-button" onClick={() => expandSelected()} disabled={busyNodeId === selected.id}>{busyNodeId === selected.id ? <><LoaderCircle className="spin" size={15} /> Following the thread…</> : <>{children.length ? 'Open these trails' : 'Explore further'} <ArrowRight size={15} /></>}</button>
               <div className="followup-composer"><label htmlFor="followup">OR POINT TOWARD SOMETHING</label><div className="followup-input"><input id="followup" placeholder="e.g. through ancient history" value={direction} onChange={(event) => setDirection(event.target.value)} maxLength={500} onKeyDown={(event) => { if (event.key === 'Enter' && direction.trim()) expandSelected(direction) }} /><button title="Explore this direction" onClick={() => expandSelected(direction)} disabled={!direction.trim() || !!busyNodeId} aria-label="Explore follow-up direction"><ArrowRight size={16} /></button></div></div>
               {children.length > 0 && <div className="child-count-note"><GitBranch size={13} /> {children.length} saved {children.length === 1 ? 'path' : 'paths'} branch from here</div>}
-            </div>
+            </div>}
           </> : <div className="detail-empty"><Sparkles size={18} /><p>Choose a concept on the map to see where it leads.</p></div>}
           <div className="detail-footnote"><span>RONIN FIELD GUIDE</span><span>01 — 26</span></div>
         </aside>

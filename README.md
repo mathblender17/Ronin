@@ -96,6 +96,26 @@ The FastAPI schema is available at `http://127.0.0.1:8000/docs`.
 6. Return to Archive, reopen the trail, and confirm the saved child relationships remain.
 7. Delete a trail and confirm the browser asks before removing it.
 
+## Deploy a read-only showcase
+
+`RONIN_READ_ONLY=1` turns Ronin into a showcase: visitors can open trails, hover and select concepts, read sources, and view recaps, but cannot create, expand, or delete anything, and no Gemini calls are made. No API key is needed on the server.
+
+The `Dockerfile` builds the frontend and serves it from FastAPI, so the whole app is one container. It ships the snapshot in `showcase/ronin.db`. Refresh the snapshot from your local data with:
+
+```powershell
+Remove-Item showcaseonin.db
+py -3 -c "import sqlite3; sqlite3.connect('data/ronin.db').execute(\"VACUUM INTO 'showcase/ronin.db'\")"
+```
+
+Run the image locally:
+
+```powershell
+docker build -t ronin-showcase .
+docker run --rm -p 10000:10000 ronin-showcase
+```
+
+On Render, create a **Blueprint** from this repository (it reads `render.yaml`) or a **Web Service** with the Docker runtime and `RONIN_READ_ONLY=1`. Render supplies `PORT`, and the free plan sleeps when idle.
+
 ## Current limits
 
 - The first version is a local single-user app; it has no account sync or cloud backup.

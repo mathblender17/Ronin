@@ -198,7 +198,7 @@ function positionGraph(
   return { nodes, edges }
 }
 
-function Canvas({ graph, selectedId, busyNodeId, focus, onSelect, onExpand }: { graph: Graph; selectedId: string | null; busyNodeId: string | null; focus: FocusRequest | null; onSelect: (concept: Concept) => void; onExpand: () => void }) {
+function Canvas({ graph, selectedId, busyNodeId, focus, onSelect, onExpand }: { graph: Graph; selectedId: string | null; busyNodeId: string | null; focus: FocusRequest | null; onSelect: (concept: Concept) => void; onExpand?: () => void }) {
   const flow = useReactFlow<FlowNode>()
   const nodesInitialized = useNodesInitialized()
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -311,12 +311,12 @@ function Canvas({ graph, selectedId, busyNodeId, focus, onSelect, onExpand }: { 
     {graph.nodes.length > 6 && <MiniMap nodeColor={miniColor} maskColor="rgba(20, 21, 19, .73)" className="ronin-minimap" position="bottom-right" style={{ width: 150, height: 96 }} pannable zoomable />}
     <Panel position="top-right"><button className="canvas-fit" onClick={fitWholeTrail}>Center trail</button></Panel>
     <Panel position="top-left"><div className="canvas-depth"><span>DEPTH</span><strong>{graph.metrics.max_depth.toString().padStart(2, '0')}</strong></div></Panel>
-    <Panel position="bottom-center" className={selected && !selectedHasChildren && busyNodeId !== selected.id ? '' : 'pass-through'}>{selected && !selectedHasChildren && busyNodeId !== selected.id
+    <Panel position="bottom-center" className={onExpand && selected && !selectedHasChildren && busyNodeId !== selected.id ? '' : 'pass-through'}>{onExpand && selected && !selectedHasChildren && busyNodeId !== selected.id
       ? <button className="canvas-expand-hint" onClick={onExpand}>FOLLOW “{selected.title}” <ArrowRight size={12} /></button>
       : <span className="canvas-expand-hint is-hint">HOVER TO PREVIEW · CLICK TO OPEN</span>}</Panel>
   </ReactFlow>
 }
 
-export function ExplorerCanvas(props: { graph: Graph; selectedId: string | null; busyNodeId: string | null; focus: FocusRequest | null; onSelect: (concept: Concept) => void; onExpand: () => void }) {
+export function ExplorerCanvas(props: { graph: Graph; selectedId: string | null; busyNodeId: string | null; focus: FocusRequest | null; onSelect: (concept: Concept) => void; onExpand?: () => void }) {
   return <ReactFlowProvider><Canvas {...props} /></ReactFlowProvider>
 }

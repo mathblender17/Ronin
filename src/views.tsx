@@ -19,12 +19,12 @@ function MapPreview({ branches }: { branches: number }) {
 export function ArchiveView({ holes, onOpen, onDelete, onNew }: {
   holes: RabbitHoleSummary[]
   onOpen: (id: string) => void
-  onDelete: (hole: RabbitHoleSummary) => void
-  onNew: () => void
+  onDelete?: (hole: RabbitHoleSummary) => void
+  onNew?: () => void
 }) {
   return <section className="archive-view">
-    <div className="archive-intro"><div><div className="eyebrow archive-eyebrow"><span className="eyebrow-line" /> THE FIELD JOURNAL</div><h1>Trails you’ve<br /><em>already taken.</em></h1><p>Every rabbit hole, held open for whenever curiosity circles back.</p></div><button className="archive-new-button" onClick={onNew}><span>Start a new trail</span><ArrowRight size={16} /></button></div>
-    <div className="archive-meta"><span>{holes.length.toString().padStart(2, '0')} {holes.length === 1 ? 'EXPLORATION' : 'EXPLORATIONS'}</span><span>STORED ON THIS DEVICE</span></div>
+    <div className="archive-intro"><div><div className="eyebrow archive-eyebrow"><span className="eyebrow-line" /> THE FIELD JOURNAL</div><h1>Trails you’ve<br /><em>already taken.</em></h1><p>Every rabbit hole, held open for whenever curiosity circles back.</p></div>{onNew ? <button className="archive-new-button" onClick={onNew}><span>Start a new trail</span><ArrowRight size={16} /></button> : <p className="showcase-note">A read-only showcase of real Ronin explorations. Open a trail, hover the map, follow the branches.</p>}</div>
+    <div className="archive-meta"><span>{holes.length.toString().padStart(2, '0')} {holes.length === 1 ? 'EXPLORATION' : 'EXPLORATIONS'}</span><span>{onNew ? 'STORED ON THIS DEVICE' : 'SHOWCASE SNAPSHOT'}</span></div>
     {holes.length ? <div className="archive-grid">{holes.map((hole, index) => <article className="archive-card" key={hole.id} style={{ animationDelay: `${index * 35}ms` }}>
       <button className="archive-card-main" onClick={() => onOpen(hole.id)}>
         <div className="archive-card-top"><span className="archive-index">TRAIL {String(holes.length - index).padStart(2, '0')}</span><span className="archive-date">{dateLabel(hole.updated_at)}</span></div>
@@ -33,8 +33,8 @@ export function ArchiveView({ holes, onOpen, onDelete, onNew }: {
         <div className="archive-card-stats"><span><Layers3 size={13} /> {hole.node_count} concepts</span><span><GitBranch size={13} /> {hole.max_depth} deep</span><span>{hole.first_level_branches} first paths</span></div>
         <div className="archive-open-hint">RETURN TO THIS TRAIL <ArrowRight size={13} /></div>
       </button>
-      <button className="archive-delete" onClick={() => onDelete(hole)} aria-label={`Delete ${hole.title}`} title="Delete exploration"><Trash2 size={15} /></button>
-    </article>)}</div> : <div className="archive-empty"><div className="empty-map"><span /><i /><i /><i /></div><h2>No trails yet.</h2><p>Start with a question. The places you visit will be waiting here.</p><button onClick={onNew}>Begin your first exploration <ArrowRight size={15} /></button></div>}
+      {onDelete && <button className="archive-delete" onClick={() => onDelete(hole)} aria-label={`Delete ${hole.title}`} title="Delete exploration"><Trash2 size={15} /></button>}
+    </article>)}</div> : <div className="archive-empty"><div className="empty-map"><span /><i /><i /><i /></div><h2>No trails yet.</h2><p>Start with a question. The places you visit will be waiting here.</p>{onNew && <button onClick={onNew}>Begin your first exploration <ArrowRight size={15} /></button>}</div>}
     <div className="archive-footer"><span>KEEP THE THREAD, NOT JUST THE ANSWER.</span><span>RONIN · YOUR PRIVATE FIELD JOURNAL</span></div>
   </section>
 }
