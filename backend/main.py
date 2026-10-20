@@ -202,7 +202,7 @@ def _save_concept(db: Session, hole: RabbitHole, parent: Node, concept: ai.Gener
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "ai_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()), "read_only": READ_ONLY}
+    return {"status": "ok", "ai_configured": ai.any_provider_configured(), "read_only": READ_ONLY, "ai": ai.diagnostics()}
 
 
 @app.get("/api/rabbit-holes", response_model=list[RabbitHoleSummary])
@@ -230,7 +230,7 @@ def create_rabbit_hole(body: CreateRequest, db: Session = Depends(get_db)):
     if len(branches) != 5:
         raise HTTPException(
             status_code=503,
-            detail=f"The initial map is incomplete: Gemini returned {len(branches)} distinct first paths, but Ronin needs exactly 5. Please retry.",
+            detail=f"The initial map is incomplete: the AI returned {len(branches)} distinct first paths, but Ronin needs exactly 5. Please retry.",
         )
     now = utcnow()
     hole = RabbitHole(id=str(uuid4()), question=body.question, title=body.question[:117] + ("…" if len(body.question) > 120 else ""), created_at=now, updated_at=now)
