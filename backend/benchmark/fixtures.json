@@ -1,0 +1,35 @@
+{
+  "description": "Representative Ronin prompts for comparing AI models. Every candidate receives identical prompts. Expansion cases reuse the parent context below.",
+  "cases": [
+    {
+      "id": "broad-open",
+      "kind": "initial",
+      "question": "Why do people feel lonely in crowded cities?"
+    },
+    {
+      "id": "psychology-culture",
+      "kind": "initial",
+      "question": "Why do humans seek status and recognition?"
+    },
+    {
+      "id": "technical",
+      "kind": "initial",
+      "question": "How do database indexes trade write speed for read speed?"
+    },
+    {
+      "id": "overlapping-topic",
+      "kind": "initial",
+      "question": "How does nostalgia change what people remember?"
+    },
+    {
+      "id": "expansion-of-concept",
+      "kind": "expansion",
+      "question": "Why do people chase happiness?",
+      "selected_title": "Hedonic adaptation",
+      "selected_summary": "People quickly return to a stable baseline of happiness after good or bad events.",
+      "selected_connection": "It explains why chasing a happy peak rarely produces lasting satisfaction.",
+      "ancestors": ["Why do people chase happiness?"],
+      "graph_context": ["Why do people chase happiness?", "Hedonic adaptation", "The paradox of pursuit"]
+    }
+  ]
+}
