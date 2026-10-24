@@ -101,7 +101,7 @@ Waypoints can be toggled off, not rewritten.
 
 ## Evaluation gate
 
-Before the button ships, `backend/benchmark/leaps.py` runs the scorer over every saved trail in `data/` and writes a
+Before the button ships, `backend/benchmark/leaps.py` runs the scorer over every saved trail in `data/ronin.db` and writes a
 markdown table: top 3 per trail with `end_distance`, `weakest_hop`, score, path and an empty WHAT / ok / nonsense column.
 
 Bar: at least half of the #1 picks are labelled WHAT or ok, and none are nonsense. If missed, tune the formula, or ship
