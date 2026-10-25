@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRight, Compass, GitBranch, Layers3, Printer, Sparkles, Trash2 } from 'lucide-react'
+import { LeapEditor } from './LeapEditor'
 import type { Graph, RabbitHoleSummary } from './types'
 
 const dateLabel = (value: string) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value))
@@ -39,7 +40,7 @@ export function ArchiveView({ holes, onOpen, onDelete, onNew }: {
   </section>
 }
 
-export function RecapView({ graph, onBack }: { graph: Graph; onBack: () => void }) {
+export function RecapView({ graph, readOnly, onBack }: { graph: Graph; readOnly: boolean; onBack: () => void }) {
   const { metrics } = graph
   const stats = [
     { label: 'CONCEPTS MAPPED', value: metrics.node_count.toString().padStart(2, '0'), icon: <Layers3 size={15} /> },
@@ -64,6 +65,7 @@ export function RecapView({ graph, onBack }: { graph: Graph; onBack: () => void 
       <div className="recap-domains"><div className="recap-section-title">SUBJECTS CROSSED <span /></div><div className="domain-list">{metrics.domains.length ? metrics.domains.map((domain) => <span key={domain}>{domain}</span>) : <span className="domain-empty">A subject will appear as your map grows.</span>}</div></div>
       <div className="recap-foot"><div className="recap-mark" /><div><span>START WITH A QUESTION.</span><span>FOLLOW YOUR CURIOSITY.</span></div><small>{dateLabel(graph.updated_at)}</small></div>
     </div>
+    {!readOnly && <LeapEditor graph={graph} />}
     <div className="recap-export-hint"><span>This recap reflects the saved graph at the time it was opened.</span><button onClick={onBack}>Continue exploring <ArrowRight size={14} /></button></div>
   </section>
 }

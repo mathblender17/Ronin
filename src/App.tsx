@@ -218,7 +218,7 @@ export default function App() {
         </>}
 
         {page === 'archive' && <ArchiveView holes={filteredHoles} onOpen={openHole} onDelete={readOnly ? undefined : deleteHole} onNew={readOnly ? undefined : newHole} />}
-        {page === 'recap' && graph && <RecapView graph={graph} onBack={() => setPage('explore')} />}
+        {page === 'recap' && graph && <RecapView graph={graph} readOnly={readOnly} onBack={() => setPage('explore')} />}
       </main>
 
       {page === 'explore' && graph && <>
