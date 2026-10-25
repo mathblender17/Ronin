@@ -313,7 +313,88 @@ def test_read_only_showcase_serves_graphs_but_refuses_changes(client: TestClient
     assert client.post("/api/rabbit-holes", json={"question": "Another question"}).status_code == 403
     assert client.post(f"/api/rabbit-holes/{graph['id']}/nodes/{child['id']}/expand", json={}).status_code == 403
     assert client.delete(f"/api/rabbit-holes/{graph['id']}").status_code == 403
+    assert client.post(f"/api/rabbit-holes/{graph['id']}/leaps", json={}).status_code == 403
     visited = client.post(f"/api/rabbit-holes/{graph['id']}/nodes/{child['id']}/visit")
     assert visited.status_code == 200
     assert visited.json()["metrics"]["explored_nodes"] == graph["metrics"]["explored_nodes"]
     assert client.get(f"/api/rabbit-holes/{graph['id']}").json()["metrics"]["node_count"] == 6
+
+
+def leap_trail(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> tuple[dict, str, str]:
+    """A trail with one visited depth-2 node. Returns (graph, eligible node id, unvisited depth-2 node id)."""
+    from backend.schemas import LeapCopy
+
+    monkeypatch.setattr(ai, "generate_initial", lambda _question: initial_layer())
+    graph = client.post("/api/rabbit-holes", json={"question": "Why do humans seek power?"}).json()
+    child = next(node for node in graph["nodes"] if node["parent_id"])
+    monkeypatch.setattr(ai, "generate_expansion", lambda **_kwargs: ai.LayerResult(
+        branches=[concept("Court rituals"), concept("Peacock feathers", "Biology"), concept("Office floor plans", "Design")], source_map={}))
+    new_ids = client.post(f"/api/rabbit-holes/{graph['id']}/nodes/{child['id']}/expand", json={}).json()["node_ids"]
+    graph = client.post(f"/api/rabbit-holes/{graph['id']}/nodes/{new_ids[0]}/visit").json()
+    monkeypatch.setattr(ai, "embed_texts", lambda texts: [[float(i), 1.0, float(i % 3)] for i in range(len(texts))])
+    monkeypatch.setattr(ai, "generate_leap_copy", lambda _question, paths: [
+        LeapCopy(index=i, hook="From power to court rituals", reframe="Rituals make rank visible.", waypoints=[path[1][0]])
+        for i, path in enumerate(paths)])
+    return graph, new_ids[0], new_ids[1]
+
+
+def test_leaps_returns_ranked_candidates(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    graph, _eligible, _unvisited = leap_trail(client, monkeypatch)
+    response = client.post(f"/api/rabbit-holes/{graph['id']}/leaps", json={})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ranked"] is True
+    assert 1 <= len(body["candidates"]) <= 3
+    candidate = body["candidates"][0]
+    assert candidate["path"][0] == graph["question"]
+    assert candidate["hops"] == len(candidate["path"]) - 1
+    assert candidate["waypoints"] == [candidate["path"][1]]
+
+
+def test_leaps_shallow_trail_is_400(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ai, "generate_initial", lambda _question: initial_layer())
+    graph = client.post("/api/rabbit-holes", json={"question": "Why do humans seek power?"}).json()
+    response = client.post(f"/api/rabbit-holes/{graph['id']}/leaps", json={})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Go one layer deeper to find a leap."
+
+
+def test_leaps_embedding_failure_is_unranked(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    graph, _eligible, _unvisited = leap_trail(client, monkeypatch)
+
+    def fail(_texts):
+        raise ai.AIServiceError("x")
+
+    monkeypatch.setattr(ai, "embed_texts", fail)
+    response = client.post(f"/api/rabbit-holes/{graph['id']}/leaps", json={})
+    assert response.status_code == 200
+    assert response.json() == {"ranked": False, "candidates": []}
+
+
+def test_leaps_node_override_skips_embeddings(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    graph, eligible, _unvisited = leap_trail(client, monkeypatch)
+
+    def never(_texts):
+        raise AssertionError("a chosen node must not be embedded")
+
+    monkeypatch.setattr(ai, "embed_texts", never)
+    body = client.post(f"/api/rabbit-holes/{graph['id']}/leaps", json={"node_id": eligible}).json()
+    assert body["ranked"] is False
+    assert [c["node_id"] for c in body["candidates"]] == [eligible]
+    assert body["candidates"][0]["score"] is None
+
+
+def test_leaps_rejects_ineligible_node(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    graph, _eligible, unvisited = leap_trail(client, monkeypatch)
+    root = next(node for node in graph["nodes"] if node["parent_id"] is None)
+    for node_id in (root["id"], unvisited, "00000000-0000-0000-0000-000000000000"):
+        assert client.post(f"/api/rabbit-holes/{graph['id']}/leaps", json={"node_id": node_id}).status_code == 400
+
+
+def test_leaps_bad_copy_indexes_is_503(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.schemas import LeapCopy
+
+    graph, _eligible, _unvisited = leap_trail(client, monkeypatch)
+    monkeypatch.setattr(ai, "generate_leap_copy", lambda _question, _paths: [LeapCopy(index=7, hook="h", reframe="r", waypoints=[])])
+    response = client.post(f"/api/rabbit-holes/{graph['id']}/leaps", json={})
+    assert response.status_code == 503

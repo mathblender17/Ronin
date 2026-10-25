@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from . import ai
+from . import ai, leaps
 from .database import ROOT_DIR, Base, SessionLocal, engine
 from .models import Edge, Node, RabbitHole, Source, utcnow
 from .schemas import (
@@ -20,6 +20,9 @@ from .schemas import (
     ExpansionOut,
     GraphEdgeOut,
     GraphOut,
+    LeapCandidateOut,
+    LeapRequest,
+    LeapsOut,
     MetricsOut,
     NodeOut,
     RabbitHoleSummary,
@@ -322,6 +325,51 @@ def expand_node(hole_id: str, node_id: str, body: ExpandRequest | None = None, d
             db.rollback()
             raise HTTPException(status_code=500, detail="The new layer could not be saved. Your existing graph is unchanged.") from exc
         return ExpansionOut(node_ids=[item.id for item in children])
+
+
+@app.post("/api/rabbit-holes/{hole_id}/leaps", response_model=LeapsOut)
+def find_leaps(hole_id: str, body: LeapRequest | None = None, db: Session = Depends(get_db)):
+    _require_writable()
+    hole = _load_hole(db, hole_id)
+    by_id = {node.id: node for node in hole.nodes}
+    nodes = {
+        node.id: leaps.TrailNode(node.id, node.parent_id, node.title, node.summary, node.domain, node.explored_at is not None)
+        for node in hole.nodes
+    }
+    eligible = leaps.eligible_ids(nodes)
+    if not eligible:
+        raise HTTPException(status_code=400, detail="Go one layer deeper to find a leap.")
+    node_id = body.node_id if body else None
+    if node_id is not None:
+        if node_id not in eligible:
+            raise HTTPException(status_code=400, detail="That node can't anchor a leap yet.")
+        ranked = False
+        chosen = [(leaps.path_to(nodes, node_id), None)]
+    else:
+        ids = list(nodes)
+        try:
+            # shortcut: re-embeds every request, add a node_embeddings cache if latency hurts.
+            vectors = dict(zip(ids, ai.embed_texts([leaps.embed_text(nodes[id]) for id in ids])))
+        except ai.AIServiceError:
+            return LeapsOut(ranked=False, candidates=[])
+        ranked = True
+        chosen = [(scored.path, scored.score) for scored in leaps.shortlist(leaps.score_paths(nodes, vectors))]
+    try:
+        copy = ai.generate_leap_copy(hole.question, [[(by_id[id].title, by_id[id].connection_reason) for id in path] for path, _ in chosen])
+    except ai.AIServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    candidates: dict[int, LeapCandidateOut] = {}
+    for leap in copy:
+        if 0 <= leap.index < len(chosen) and leap.index not in candidates:
+            path, score = chosen[leap.index]
+            candidates[leap.index] = LeapCandidateOut(
+                node_id=path[-1], path=[by_id[id].title for id in path], waypoints=leap.waypoints,
+                hook=leap.hook, reframe=leap.reframe, score=score,
+                hops=len(path) - 1, domains=len({by_id[id].domain for id in path[1:]}),
+            )
+    if not candidates:
+        raise HTTPException(status_code=503, detail="Ronin couldn't write this leap. Please retry.")
+    return LeapsOut(ranked=ranked, candidates=[candidates[index] for index in sorted(candidates)])
 
 
 @app.delete("/api/rabbit-holes/{hole_id}", status_code=status.HTTP_204_NO_CONTENT)
