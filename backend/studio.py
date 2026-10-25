@@ -1,12 +1,15 @@
 """Ronin Studio: the local newsroom. Compiles story files into trails.
 
 Usage:
+  python -m backend.studio draft "<seed idea>" --slug <slug> [--model provider/model]
+  python -m backend.studio redraft <slug> --model provider/model --out <file>
   python -m backend.studio import <slug>
   python -m backend.studio publish
 """
 import argparse
+import json
 import os
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import date
 from pathlib import Path
 from uuid import uuid4
@@ -17,9 +20,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from . import ai
 from .database import ROOT_DIR, Base, SessionLocal, add_missing_columns, engine
 from .models import Edge, Node, RabbitHole, Source, utcnow
-from .story import Discovery, SourceRef, Story, StoryError, parse_story
+from .schemas import DraftDiscovery, DraftStory
+from .sources import search_all
+from .story import Discovery, SourceRef, Story, StoryError, parse_story, render_story
 
 STORIES_DIR = ROOT_DIR / "stories"
+RESEARCH_DIR_NAME = ".research"  # local research dossiers, git-ignored and never published
 SHOWCASE_DB = ROOT_DIR / "showcase" / "ronin.db"
 
 
@@ -84,6 +90,77 @@ def import_story(db: Session, story: Story) -> RabbitHole:
     return hole
 
 
+def _split_model(model: str | None) -> tuple[str, str] | None:
+    if not model:
+        return None
+    provider, sep, name = model.partition("/")
+    if not sep or not name:
+        raise ValueError(f"--model must be provider/model, for example deepseek/deepseek-flash, not '{model}'")
+    return provider, name
+
+
+def compile_draft(slug: str, draft: DraftStory, finds: list[dict], drafted_by: str, note: str | None) -> Story:
+    """Turn the model's draft into a story file. Sources come only from real finds; the author verifies every beat."""
+    dropped = 0
+
+    def discovery(item: DraftDiscovery) -> Discovery:
+        nonlocal dropped
+        refs = []
+        for number in dict.fromkeys(item.sources):
+            if 1 <= number <= len(finds):
+                f = finds[number - 1]
+                refs.append(SourceRef(f["title"][:300] or f["url"], f["url"], f["medium"], f.get("creator"), f.get("date")))
+            else:
+                dropped += 1
+        evidence, check = item.evidence, "verify before publishing"
+        if evidence in ("fact", "claim") and not refs:
+            evidence, check = "speculation", "needs a source; verify before publishing"
+        return Discovery(item.title, evidence, " ".join(item.why.split()), item.body.strip(), refs, check)
+
+    entry, descent, leap = discovery(draft.entry), [discovery(item) for item in draft.descent], discovery(draft.leap)
+    notes = [note] if note else []
+    if dropped:
+        notes.append(f"dropped {dropped} invented source numbers")
+    return Story(
+        slug=slug, title=" ".join(draft.title.split()), hook=" ".join(draft.hook.split()), entry=entry, descent=descent, leap=leap,
+        known=" ".join(draft.known.split()), open=" ".join(draft.open.split()), drafted_by=drafted_by or None,
+        prompt=ai.DRAFT_PROMPT_VERSION, note="; ".join(notes) or None,
+    )
+
+
+def _write_new(path: Path, text: str) -> Path:
+    if path.exists():
+        raise FileExistsError(f"{path} already exists; Ronin never overwrites a story you may have edited.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def draft(seed: str, slug: str, *, model: str | None = None, stories_dir: Path = STORIES_DIR, search=search_all) -> Path:
+    path = stories_dir / f"{slug}.md"
+    if path.exists():
+        raise FileExistsError(f"{path} already exists; Ronin never overwrites a story you may have edited.")
+    only = _split_model(model)
+    plan = ai.plan_queries(seed, only)
+    finds, skipped = search([query.text for query in plan.queries])
+    research = {"seed": seed, "queries": [query.model_dump() for query in plan.queries], "finds": [asdict(f) for f in finds], "skipped": skipped}
+    research_path = stories_dir / RESEARCH_DIR_NAME / f"{slug}.json"
+    research_path.parent.mkdir(parents=True, exist_ok=True)
+    research_path.write_text(json.dumps(research, ensure_ascii=False, indent=2), encoding="utf-8")
+    story = compile_draft(slug, ai.write_draft(seed, research["finds"], only), research["finds"], ai.last_provider_model(),
+                          f"skipped: {'; '.join(skipped)}" if skipped else None)
+    return _write_new(path, render_story(story))
+
+
+def redraft(slug: str, *, model: str, out: Path, stories_dir: Path = STORIES_DIR) -> Path:
+    """Same finds, same brief, another model: the bake-off. Never searches again."""
+    research = json.loads((stories_dir / RESEARCH_DIR_NAME / f"{slug}.json").read_text(encoding="utf-8"))
+    skipped = research.get("skipped") or []
+    story = compile_draft(slug, ai.write_draft(research["seed"], research["finds"], _split_model(model)), research["finds"],
+                          ai.last_provider_model(), f"skipped: {'; '.join(skipped)}" if skipped else None)
+    return _write_new(out, render_story(story))
+
+
 def _public(story: Story) -> Story:
     """The publication allowlist: drop every author-only field before a story leaves the studio."""
     def clean(item: Discovery) -> Discovery:
@@ -121,6 +198,14 @@ def main(argv: list[str] | None = None, stories_dir: Path = STORIES_DIR) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("import", help="Compile one story file into the local database.").add_argument("slug")
     commands.add_parser("publish", help="Rebuild showcase/ronin.db from published stories only.")
+    drafting = commands.add_parser("draft", help="Research a seed idea and write a draft story file.")
+    drafting.add_argument("seed")
+    drafting.add_argument("--slug", required=True)
+    drafting.add_argument("--model", help="provider/model, for example deepseek/deepseek-flash")
+    again = commands.add_parser("redraft", help="Rewrite a draft from its saved finds with another model.")
+    again.add_argument("slug")
+    again.add_argument("--model", required=True)
+    again.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
     slug = getattr(args, "slug", "*")
     try:
@@ -131,11 +216,18 @@ def main(argv: list[str] | None = None, stories_dir: Path = STORIES_DIR) -> int:
             with SessionLocal() as db:
                 import_story(db, story)
             print(f"Imported {args.slug}: {len(story.descent) + 2} discoveries")
+        elif args.command == "draft":
+            print(f"Draft written to {draft(args.seed, args.slug, model=args.model, stories_dir=stories_dir)}. Edit it, then import.")
+        elif args.command == "redraft":
+            print(f"Redraft written to {redraft(args.slug, model=args.model, out=args.out, stories_dir=stories_dir)}")
         elif args.command == "publish":
             slugs = publish(stories_dir, SHOWCASE_DB, date.today())
             print(f"Published {len(slugs)} stories to showcase/ronin.db: {', '.join(slugs) or '(none)'}")
     except StoryError as exc:
         print(f"stories/{slug}.md: {exc}" if args.command == "import" else f"stories/{exc}")
+        return 1
+    except (FileExistsError, FileNotFoundError, ValueError, ai.AIServiceError) as exc:
+        print(str(exc))
         return 1
     return 0
 

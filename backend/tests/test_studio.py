@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from backend import studio
 from backend.database import Base, add_missing_columns
 from backend.models import Edge, Node, RabbitHole, Source
+from backend.sources import Found
 from backend.story import parse_story
 from backend.tests.test_story import SLUG, VALID
 
@@ -130,3 +131,86 @@ def test_publish_failure_keeps_old_snapshot(tmp_path: Path) -> None:
     with pytest.raises(StoryError):
         studio.publish(tmp_path, out, date(2026, 10, 26))
     assert out.read_bytes() == b"old snapshot"
+
+
+def fake_plan():
+    from backend.schemas import PlannedQuery, QueryPlan
+
+    return QueryPlan(queries=[PlannedQuery(text=f"q{i}", angle="origin") for i in range(4)])
+
+
+def fake_draft(entry_sources=(1,), descent_evidence="claim", descent_sources=(1,)):
+    from backend.schemas import DraftDiscovery, DraftStory
+
+    def item(title, evidence, sources):
+        return DraftDiscovery(title=title, evidence=evidence, why=f"Why {title}.", body=f"Body of {title}.", sources=list(sources))
+
+    return DraftStory(
+        title="A forum that vanished", hook="Where did everyone go?",
+        entry=item("The last post", "fact", entry_sources), descent=[item("A strange mirror", descent_evidence, descent_sources)],
+        leap=item("Nobody owns the past", "interpretation", ()), known="It existed.", open="Who mirrored it?",
+    )
+
+
+FINDS = [Found("A thread", "https://www.reddit.com/r/x/comments/1/", "reddit", "u/a", "2019-01-01", "r/x")]
+
+
+@pytest.fixture()
+def drafting(monkeypatch: pytest.MonkeyPatch) -> dict:
+    from backend import ai
+
+    calls: dict = {"write": []}
+    monkeypatch.setattr(ai, "plan_queries", lambda seed, only=None: fake_plan())
+
+    def write(seed, finds, only=None):
+        calls["write"].append(only)
+        return calls.get("draft") or fake_draft()
+
+    monkeypatch.setattr(ai, "write_draft", write)
+    monkeypatch.setattr(ai, "last_provider_model", lambda: "deepseek/deepseek-flash")
+    return calls
+
+
+def test_draft_writes_story_and_research(tmp_path: Path, drafting: dict) -> None:
+    import json
+
+    path = studio.draft("a vanished forum", "vanished", stories_dir=tmp_path, search=lambda queries: (FINDS, ["youtube: no key"]))
+    story = parse_story(path.read_text(encoding="utf-8"), "vanished")
+    assert story.drafted_by == "deepseek/deepseek-flash" and story.prompt == "draft-v1" and story.published is None
+    assert story.note == "skipped: youtube: no key"
+    assert story.entry.sources[0].url == FINDS[0].url and story.entry.check == "verify before publishing"
+    research = json.loads((tmp_path / ".research" / "vanished.json").read_text(encoding="utf-8"))
+    assert research["finds"][0]["url"] == FINDS[0].url and research["skipped"] == ["youtube: no key"]
+
+
+def test_invented_source_numbers_are_dropped_and_noted(tmp_path: Path, drafting: dict) -> None:
+    drafting["draft"] = fake_draft(entry_sources=(1, 99))
+    path = studio.draft("seed", "vanished", stories_dir=tmp_path, search=lambda queries: (FINDS, []))
+    story = parse_story(path.read_text(encoding="utf-8"), "vanished")
+    assert len(story.entry.sources) == 1
+    assert "dropped 1" in story.note
+
+
+def test_unsourced_fact_becomes_speculation(tmp_path: Path, drafting: dict) -> None:
+    drafting["draft"] = fake_draft(descent_evidence="fact", descent_sources=())
+    path = studio.draft("seed", "vanished", stories_dir=tmp_path, search=lambda queries: (FINDS, []))
+    story = parse_story(path.read_text(encoding="utf-8"), "vanished")
+    assert story.descent[0].evidence == "speculation"
+    assert "needs a source" in story.descent[0].check
+
+
+def test_draft_refuses_to_overwrite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend import ai
+
+    (tmp_path / "vanished.md").write_text("mine", encoding="utf-8")
+    monkeypatch.setattr(ai, "plan_queries", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not plan")))
+    with pytest.raises(FileExistsError):
+        studio.draft("seed", "vanished", stories_dir=tmp_path, search=lambda queries: (FINDS, []))
+    assert (tmp_path / "vanished.md").read_text(encoding="utf-8") == "mine"
+
+
+def test_redraft_reuses_finds_without_search(tmp_path: Path, drafting: dict) -> None:
+    studio.draft("seed", "vanished", stories_dir=tmp_path, search=lambda queries: (FINDS, []))
+    out = studio.redraft("vanished", model="kimi/kimi-k3.1-pro", out=tmp_path / "b.md", stories_dir=tmp_path)
+    assert drafting["write"][-1] == ("kimi", "kimi-k3.1-pro")
+    assert parse_story(out.read_text(encoding="utf-8"), "vanished").title == "A forum that vanished"

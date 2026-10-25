@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 from . import ai_providers as providers
 from .database import ROOT_DIR
-from .schemas import ExpansionLayer, GeneratedConcept, InitialLayer, LeapCopy, LeapCopyLayer
+from .schemas import DraftStory, ExpansionLayer, GeneratedConcept, InitialLayer, LeapCopy, LeapCopyLayer, QueryPlan
 
 load_dotenv(ROOT_DIR / ".env")
 logger = logging.getLogger("ronin.ai")
@@ -672,3 +672,56 @@ Return JSON only, in this shape, with one entry per path and its index:
             interior = [title for title, _reason in paths[leap.index][1:-1]]
             leaps.append(leap.model_copy(update={"waypoints": clean_waypoints(leap.waypoints, interior)}))
     return leaps
+
+
+DRAFT_PROMPT_VERSION = "draft-v1"
+EDITORIAL_BAR = """Ronin publishes rabbit holes for people who love being intellectually lost: lost media, dead websites, meme origins, \
+old forums, Japanese internet subculture, uncanny history. The goal is intrigue, not education: make the familiar feel unfamiliar.
+- Every discovery must change what the reader thought they knew, or open a sharper question. No listicle filler.
+- Never manufacture mystery or suspense the evidence does not support. The reality should be strange enough.
+- Investigate conspiracies, never invent them. Keep facts, attributed claims, interpretation and speculation apart.
+- An anonymous anecdote (for example from Reddit) is at most a claim, never a fact."""
+
+
+def plan_queries(seed: str, only: tuple[str, str] | None = None) -> QueryPlan:
+    prompt = f"""You are Ronin's research planner. {EDITORIAL_BAR}
+
+Seed idea: {seed}
+
+Write 4 to 8 search queries that would surface real primary material about this seed: original posts, archived pages, \
+first-hand accounts, videos, forum threads. Give each query one angle: origin (where it started), stranger (the odd detail), \
+counterpoint (evidence against the obvious story), old-web (archived or forgotten sites), japanese (Japanese-language sources, \
+written in Japanese). Use the japanese angle only when it fits the seed.
+
+Return JSON only, in this shape:
+{{"queries": [{{"text": "...", "angle": "origin"}}]}}"""
+    _local.provider = None
+    return _structured(prompt, QueryPlan, only)
+
+
+def write_draft(seed: str, finds: list[dict], only: tuple[str, str] | None = None) -> DraftStory:
+    numbered = "\n".join(
+        f"[{number}] {f['medium']} · {f['title']} · {f.get('creator') or '-'} · {f.get('date') or '-'} · {f['url']} · {f.get('snippet') or ''}"
+        for number, f in enumerate(finds, start=1)
+    )
+    prompt = f"""You are Ronin's story drafter. {EDITORIAL_BAR}
+
+Seed idea: {seed}
+
+Numbered finds from research (the only material you may cite):
+{numbered or '(no finds: mark every discovery as speculation or open)'}
+
+Draft one rabbit hole in five beats:
+- title: the story's name. hook: one impossible-looking question.
+- entry: the specific artifact, clue or event where the trail starts.
+- descent: 1 to 6 discoveries, each changing the question.
+- leap: the unexpected connection between two seemingly unrelated worlds; its why is the one-line reframe.
+- known: what is established. open: what remains unresolved.
+Each discovery has: title, evidence (fact | claim | interpretation | speculation | open), why (how it follows from the \
+previous step), body (2-4 vivid sentences), sources (find numbers only, never URLs). A fact or claim must cite at least one find.
+
+Return JSON only, in this shape:
+{{"title": "...", "hook": "...", "entry": {{"title": "...", "evidence": "fact", "why": "...", "body": "...", "sources": [1]}}, \
+"descent": [{{...same shape...}}], "leap": {{...same shape...}}, "known": "...", "open": "..."}}"""
+    _local.provider = None
+    return _structured(prompt, DraftStory, only)

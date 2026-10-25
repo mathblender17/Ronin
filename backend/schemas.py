@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
@@ -167,3 +168,33 @@ class LeapCandidateOut(BaseModel):
 class LeapsOut(BaseModel):
     ranked: bool
     candidates: list[LeapCandidateOut]
+
+
+Evidence = Literal["fact", "claim", "interpretation", "speculation", "open"]
+
+
+class PlannedQuery(BaseModel):
+    text: str = Field(min_length=2, max_length=200)
+    angle: Literal["origin", "stranger", "counterpoint", "old-web", "japanese"]
+
+
+class QueryPlan(BaseModel):
+    queries: list[PlannedQuery] = Field(min_length=4, max_length=8)
+
+
+class DraftDiscovery(BaseModel):
+    title: str = Field(min_length=2, max_length=180)
+    evidence: Evidence
+    why: str = Field(min_length=2)
+    body: str = ""
+    sources: list[int] = Field(default_factory=list, description="Find numbers from the numbered list, never URLs.")
+
+
+class DraftStory(BaseModel):
+    title: str = Field(min_length=2, max_length=120)
+    hook: str = Field(min_length=5)
+    entry: DraftDiscovery
+    descent: list[DraftDiscovery] = Field(min_length=1, max_length=6)
+    leap: DraftDiscovery
+    known: str
+    open: str
