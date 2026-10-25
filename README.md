@@ -145,12 +145,13 @@ The FastAPI schema is available at `http://127.0.0.1:8000/docs`.
 
 `RONIN_READ_ONLY=1` turns Ronin into a showcase: visitors can open trails, hover and select concepts, read sources, and view recaps, but cannot create, expand, or delete anything, and no Gemini calls are made. No API key is needed on the server.
 
-The `Dockerfile` builds the frontend and serves it from FastAPI, so the whole app is one container. It ships the snapshot in `showcase/ronin.db`. Refresh the snapshot from your local data with:
+The `Dockerfile` builds the frontend and serves it from FastAPI, so the whole app is one container. It ships the snapshot in `showcase/ronin.db`. Rebuild the snapshot from the published story files in `stories/` (drafts, future-dated stories, author notes and draft metadata are never included; your local database is never copied):
 
 ```powershell
-Remove-Item showcaseonin.db
-py -3 -c "import sqlite3; sqlite3.connect('data/ronin.db').execute(\"VACUUM INTO 'showcase/ronin.db'\")"
+python -m backend.studio publish
 ```
+
+Preview exactly what will ship before you commit and deploy it by running the API with `RONIN_READ_ONLY=1` and `RONIN_DATABASE_URL=sqlite:///showcase/ronin.db`.
 
 Run the image locally:
 

@@ -83,3 +83,50 @@ def test_cli_reports_story_error(tmp_path: Path, capsys: pytest.CaptureFixture[s
     (tmp_path / "bad.md").write_text("---\ntitle: x\nslug: bad\n---\n## Hook\nq\n", encoding="utf-8")
     assert studio.main(["import", "bad"], stories_dir=tmp_path) == 1
     assert "bad.md: line" in capsys.readouterr().out
+
+
+def write_story(directory: Path, slug: str, published: str | None, extra: str = "") -> None:
+    text = VALID.replace(f"slug: {SLUG}", f"slug: {slug}")
+    text = text.replace("published: 2026-11-02\n", f"published: {published}\n" if published else "")
+    (directory / f"{slug}.md").write_text(text + extra, encoding="utf-8")
+
+
+def test_publish_excludes_drafts_and_future(tmp_path: Path) -> None:
+    from datetime import date
+
+    write_story(tmp_path, "live", "2026-10-01")
+    write_story(tmp_path, "draft", None)
+    write_story(tmp_path, "later", "2026-12-01")
+    out = tmp_path / "showcase.db"
+    assert studio.publish(tmp_path, out, date(2026, 10, 26)) == ["live"]
+    with sqlite3.connect(out) as raw:
+        assert raw.execute("SELECT slug FROM rabbit_holes").fetchall() == [("live",)]
+
+
+def test_publish_strips_private_fields(tmp_path: Path) -> None:
+    from datetime import date
+
+    write_story(tmp_path, "live", "2026-10-01")
+    out = tmp_path / "showcase.db"
+    studio.publish(tmp_path, out, date(2026, 10, 26))
+    private = ("verify before publishing", "skipped: reddit: no key", "deepseek/deepseek-flash", "draft-v1")
+    with sqlite3.connect(out) as raw:
+        assert raw.execute("SELECT COUNT(*) FROM nodes WHERE check_note IS NOT NULL").fetchone() == (0,)
+        for (table,) in raw.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
+            for row in raw.execute(f"SELECT * FROM {table}"):
+                for value in row:
+                    assert not any(secret in str(value) for secret in private), (table, value)
+
+
+def test_publish_failure_keeps_old_snapshot(tmp_path: Path) -> None:
+    from datetime import date
+
+    from backend.story import StoryError
+
+    out = tmp_path / "showcase.db"
+    out.write_bytes(b"old snapshot")
+    write_story(tmp_path, "live", "2026-10-01")
+    (tmp_path / "broken.md").write_text("not a story", encoding="utf-8")
+    with pytest.raises(StoryError):
+        studio.publish(tmp_path, out, date(2026, 10, 26))
+    assert out.read_bytes() == b"old snapshot"
