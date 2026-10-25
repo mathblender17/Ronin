@@ -5,7 +5,7 @@ import re
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from typing import Any
@@ -64,6 +64,11 @@ BACKOFF_CAP_SECONDS = 8.0
 LONG_COOLDOWN_SECONDS = 3600.0          # daily allowance used up, billing needed, or key rejected
 RATE_LIMIT_COOLDOWN_SECONDS = 60.0      # per-minute limit: pause briefly, honouring Retry-After up to the maximum
 RATE_LIMIT_COOLDOWN_MAX_SECONDS = 300.0
+# Paid OpenAI-compatible APIs. They run only when named in RONIN_AI_PROVIDER_ORDER or passed as `only`.
+OPENAI_COMPATIBLE: dict[str, tuple[str, str, str, str]] = {
+    "deepseek": ("https://api.deepseek.com/chat/completions", "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "deepseek-flash"),
+    "kimi": ("https://api.moonshot.ai/v1/chat/completions", "MOONSHOT_API_KEY", "KIMI_MODEL", "kimi-k3.1-pro"),
+}
 NO_PROVIDER_MESSAGE = "No AI provider is configured. Add GEMINI_API_KEY or OPENROUTER_API_KEY to the project .env file and restart the API."
 
 # What the user sees, keyed by failure category. Each message says what happened and what to do.
@@ -145,7 +150,21 @@ def _openrouter_key() -> str:
 
 
 def any_provider_configured() -> bool:
-    return bool(os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("OPENROUTER_API_KEY", "").strip())
+    keys = ["GEMINI_API_KEY", "OPENROUTER_API_KEY", *(key_env for _url, key_env, _m, _d in OPENAI_COMPATIBLE.values())]
+    return any(os.getenv(key, "").strip() for key in keys)
+
+
+def _compatible_key(provider: str) -> str:
+    key_env = OPENAI_COMPATIBLE[provider][1]
+    key = os.getenv(key_env, "").strip()
+    if not key:
+        raise AIConfigurationError(f"{provider.capitalize()} is not configured. Add {key_env} to the project .env file.")
+    return key
+
+
+def last_provider_model() -> str:
+    provider, model = getattr(_local, "provider", None), getattr(_local, "model", None)
+    return f"{provider}/{model}" if provider and model else ""
 
 
 def _classify_gemini(exc: errors.APIError) -> providers.ProviderError:
@@ -190,19 +209,26 @@ def _gemini_text(prompt: str, schema: type[BaseModel], model: str, settings: AIS
     return text
 
 
-def _enforce_policy(provider: str, model: str, settings: AISettings) -> None:
+def _enforce_policy(provider: str, model: str, settings: AISettings, explicit: bool = False) -> None:
     """Fail closed before any request is made. Paid models need RONIN_AI_ALLOW_PAID_MODELS and an explicit choice."""
+    if provider in OPENAI_COMPATIBLE:
+        return
     if provider == "gemini":
         if model in providers.GEMINI_MODELS or settings.allow_paid:
             return
         raise providers.ProviderError(providers.POLICY, f"Gemini model '{model}' is not on Ronin's approved list, so it was not called.")
-    providers.approved_openrouter_model(model, allow_paid=settings.allow_paid, named_explicitly=model in settings.openrouter_models)
+    providers.approved_openrouter_model(model, allow_paid=settings.allow_paid, named_explicitly=explicit or model in settings.openrouter_models)
 
 
 def _call(provider: str, model: str, prompt: str, schema: type[BaseModel], settings: AISettings) -> Any:
     try:
         if provider == "gemini":
             text = _gemini_text(prompt, schema, model, settings)
+        elif provider in OPENAI_COMPATIBLE:
+            text = providers.openrouter_generate_json(
+                model=model, prompt=prompt, api_key=_compatible_key(provider), timeout=settings.timeout,
+                max_tokens=settings.max_output_tokens, url=OPENAI_COMPATIBLE[provider][0],
+            )
         else:
             text = providers.openrouter_generate_json(
                 model=model, prompt=prompt, api_key=_openrouter_key(), timeout=settings.timeout, max_tokens=settings.max_output_tokens,
@@ -264,9 +290,13 @@ def _retry_delay(error: providers.ProviderError, attempt: int) -> float | None:
     return min(BACKOFF_CAP_SECONDS, BACKOFF_BASE_SECONDS * (2 ** attempt)) * _jitter.uniform(0.5, 1.0)
 
 
-def _structured_with_provider(prompt: str, schema: type[BaseModel]) -> tuple[Any, str]:
-    """Try each configured provider and model in order, with bounded retries. Returns the validated layer and its provider."""
+def _structured_with_provider(prompt: str, schema: type[BaseModel], only: tuple[str, str] | None = None) -> tuple[Any, str]:
+    """Try each configured provider and model in order, with bounded retries. Returns the validated layer and its provider.
+
+    `only=(provider, model)` runs exactly that pair, for drafting with a chosen model or a model bake-off."""
     settings = load_settings()
+    if only:
+        settings = replace(settings, provider_order=(only[0],))
     failures: list[tuple[str, str, providers.ProviderError]] = []
     reached_provider = False
     for provider in settings.provider_order:
@@ -275,8 +305,13 @@ def _structured_with_provider(prompt: str, schema: type[BaseModel]) -> tuple[Any
                 providers.COOLDOWN, f"{provider.capitalize()} is paused after a recent limit or billing response, so it was skipped.",
             )))
             continue
-        if provider == "gemini":
+        if only:
+            models = [only[1]]
+        elif provider == "gemini":
             models = [_model()]
+        elif provider in OPENAI_COMPATIBLE:
+            _url, _key, model_env, default_model = OPENAI_COMPATIBLE[provider]
+            models = [os.getenv(model_env, "").strip() or default_model]
         elif provider == "openrouter":
             models = list(settings.openrouter_models)
         else:
@@ -285,7 +320,7 @@ def _structured_with_provider(prompt: str, schema: type[BaseModel]) -> tuple[Any
         skip_provider = False
         for model in models:
             try:
-                _enforce_policy(provider, model, settings)
+                _enforce_policy(provider, model, settings, explicit=only is not None)
             except providers.ProviderError as error:
                 failures.append((provider, model, error))
                 _record_failure(provider, model, error)
@@ -323,6 +358,7 @@ def _structured_with_provider(prompt: str, schema: type[BaseModel]) -> tuple[Any
                 reached_provider = True
                 _record_success(provider, model, (_clock() - started) * 1000)
                 _local.provider = provider
+                _local.model = model
                 return value, provider
             if skip_provider:
                 break
@@ -347,8 +383,8 @@ def _failure_error(failures: list[tuple[str, str, providers.ProviderError]], rea
     )
 
 
-def _structured(prompt: str, schema: type[BaseModel]) -> Any:
-    value, _provider = _structured_with_provider(prompt, schema)
+def _structured(prompt: str, schema: type[BaseModel], only: tuple[str, str] | None = None) -> Any:
+    value, _provider = _structured_with_provider(prompt, schema, only)
     return value
 
 

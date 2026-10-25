@@ -544,3 +544,59 @@ def test_priority_prefers_the_most_actionable_problem() -> None:
     assert error.category == ai_providers.AUTH
     assert str(error) == ai.USER_MESSAGES[ai_providers.AUTH]
     assert "gemini/gemini-2.5-flash: unavailable" in error.technical
+
+
+def test_deepseek_posts_to_its_own_base_url() -> None:
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers["authorization"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    real_openrouter_generate_json(
+        model="deepseek-flash", prompt="p", api_key="k", timeout=5, max_tokens=100,
+        transport=httpx.MockTransport(handler), url=ai.OPENAI_COMPATIBLE["deepseek"][0],
+    )
+    assert seen == {"url": "https://api.deepseek.com/chat/completions", "auth": "Bearer k"}
+
+
+def compatible_recorder(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    calls: list[dict] = []
+
+    def record(**kwargs):
+        calls.append(kwargs)
+        return expansion_json()
+
+    monkeypatch.setattr(ai.providers, "openrouter_generate_json", record)
+    return calls
+
+
+def test_named_kimi_is_called_and_unnamed_is_not(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = compatible_recorder(monkeypatch)
+    monkeypatch.setenv("MOONSHOT_API_KEY", "k")
+    monkeypatch.setenv("RONIN_AI_PROVIDER_ORDER", "kimi")
+    ai._structured("Return JSON.", ExpansionLayer)
+    assert [call["url"] for call in calls] == ["https://api.moonshot.ai/v1/chat/completions"]
+    calls.clear()
+    monkeypatch.setenv("RONIN_AI_PROVIDER_ORDER", "gemini")
+    with pytest.raises(ai.AIServiceError):
+        ai._structured("Return JSON.", ExpansionLayer)
+    assert calls == []
+
+
+def test_only_override_restricts_to_one_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = compatible_recorder(monkeypatch)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
+    monkeypatch.setenv("RONIN_AI_PROVIDER_ORDER", "gemini,openrouter")
+    ai._structured("Return JSON.", ExpansionLayer, only=("deepseek", "deepseek-flash"))
+    assert [call["model"] for call in calls] == ["deepseek-flash"]
+    assert ai.last_provider_model() == "deepseek/deepseek-flash"
+
+
+def test_missing_deepseek_key_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = compatible_recorder(monkeypatch)
+    monkeypatch.setenv("RONIN_AI_PROVIDER_ORDER", "deepseek")
+    with pytest.raises(ai.AIServiceError):
+        ai._structured("Return JSON.", ExpansionLayer)
+    assert calls == []

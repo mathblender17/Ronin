@@ -125,8 +125,9 @@ def openrouter_generate_json(
     max_tokens: int,
     temperature: float = 0.85,
     transport: httpx.BaseTransport | None = None,
+    url: str = OPENROUTER_URL,
 ) -> str:
-    """Ask OpenRouter for one JSON object. Returns the raw message content, which the caller validates with Pydantic."""
+    """Ask an OpenAI-compatible endpoint (OpenRouter by default) for one JSON object. Returns the raw message content, which the caller validates with Pydantic."""
     body = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -138,7 +139,7 @@ def openrouter_generate_json(
     headers = {"Authorization": f"Bearer {api_key}", "X-Title": "Ronin"}
     try:
         with httpx.Client(timeout=timeout, transport=transport) as client:
-            response = client.post(OPENROUTER_URL, headers=headers, json=body)
+            response = client.post(url, headers=headers, json=body)
     except httpx.TimeoutException as exc:
         raise ProviderError(TIMEOUT, "OpenRouter timed out. Retrying.") from exc
     except httpx.HTTPError as exc:
