@@ -1,7 +1,7 @@
 export const CARD_WIDTH = 1080
 export const CARD_HEIGHT = 1350
 
-export type LeapCardData = { question: string; end: string; waypoints: string[]; hook: string; reframe: string; hops: number; domains: number }
+export type LeapCardData = { question: string; end: string; waypoints: string[]; hook: string; reframe: string; hops: number; domains: number; footer?: string }
 
 // Canvas cannot read CSS variables cheaply, so these mirror --bg, --paper, --rust and --muted in styles.css.
 const BG = '#191a17'
@@ -76,7 +76,7 @@ export function drawLeapCard(ctx: CanvasRenderingContext2D, card: LeapCardData):
 
   ctx.fillStyle = '#393a32'
   ctx.fillRect(PAD, CARD_HEIGHT - 110, CARD_WIDTH - PAD * 2, 2)
-  block(ctx, `${card.hops} hops · ${card.domains} subjects crossed`, `400 24px ${MONO}`, MUTED, CARD_HEIGHT - 64, 0, 1)
+  block(ctx, card.footer ?? `${card.hops} hops · ${card.domains} subjects crossed`, `400 24px ${MONO}`, MUTED, CARD_HEIGHT - 64, 0, 1)
   ctx.font = `500 32px ${SERIF}`
   ctx.fillStyle = PAPER
   ctx.textAlign = 'right'

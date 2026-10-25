@@ -4,6 +4,9 @@ export type Source = {
   url: string
   publisher: string
   citation_text: string
+  medium?: string | null
+  creator?: string | null
+  published?: string | null
 }
 
 export type Concept = {
@@ -17,6 +20,8 @@ export type Concept = {
   explored: boolean
   created_at: string
   sources: Source[]
+  stage?: string | null
+  evidence?: string | null
 }
 
 export type Metrics = {
@@ -45,6 +50,9 @@ export type Graph = {
   question: string
   created_at: string
   updated_at: string
+  slug?: string | null
+  territory?: string | null
+  published_at?: string | null
   nodes: Concept[]
   edges: GraphEdge[]
   metrics: Metrics

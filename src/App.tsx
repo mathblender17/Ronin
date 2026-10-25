@@ -12,6 +12,10 @@ import type { Concept, Graph, RabbitHoleSummary } from './types'
 type Page = 'start' | 'explore' | 'archive' | 'recap'
 const EXAMPLES = ['Why do humans seek power?', 'How did maps change the way we think?', 'What makes a memory feel real?']
 
+const EVIDENCE_LABELS: Record<string, string> = {
+  fact: 'Verified fact', claim: 'Attributed claim', interpretation: 'Interpretation', speculation: 'Speculation', open: 'Open question',
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>('start')
   const [graph, setGraph] = useState<Graph | null>(null)
@@ -106,7 +110,12 @@ export default function App() {
     setSelectedId(node.id)
     setMobileDetail(true)
     setDirection('')
-    if (!graph || node.explored || readOnly) return
+    if (!graph || node.explored) return
+    if (readOnly) {
+      // Session-only visit marks on the public site: no tracking, no server write, gone on reload.
+      setGraph({ ...graph, nodes: graph.nodes.map((item) => item.id === node.id ? { ...item, explored: true } : item) })
+      return
+    }
     try {
       const updated = await api.visit(graph.id, node.id)
       setGraph(updated)
@@ -211,7 +220,7 @@ export default function App() {
         </section>}
 
         {page === 'explore' && graph && <>
-          <div className="graph-heading"><div><div className="graph-kicker"><Compass size={13} /> YOUR OPEN QUESTION</div><h1>{graph.question}</h1>{graph.metrics.first_level_branches < 5 && <p className="graph-incomplete">This trail was saved with {graph.metrics.first_level_branches} of 5 first paths by an earlier version of Ronin.</p>}</div><button className="graph-menu" onClick={() => setPage('recap')}><span>{graph.metrics.first_level_branches} first paths · {graph.metrics.node_count} concepts</span><ChevronDown size={15} /></button></div>
+          <div className="graph-heading"><div><div className="graph-kicker"><Compass size={13} /> YOUR OPEN QUESTION</div><h1>{graph.question}</h1>{!graph.slug && graph.metrics.first_level_branches < 5 && <p className="graph-incomplete">This trail was saved with {graph.metrics.first_level_branches} of 5 first paths by an earlier version of Ronin.</p>}</div><button className="graph-menu" onClick={() => setPage('recap')}><span>{graph.metrics.first_level_branches} first paths · {graph.metrics.node_count} concepts</span><ChevronDown size={15} /></button></div>
           <div className="canvas-shell"><ExplorerCanvas key={graph.id} graph={graph} selectedId={selectedId} busyNodeId={busyNodeId} focus={expandFocus} onSelect={selectNode} onExpand={readOnly ? undefined : expandSelected} /></div>
           <div className="canvas-legend"><span><i className="legend-root" /> STARTING QUESTION</span><span><i className="legend-branch" /> A PATH TO FOLLOW</span><span className="legend-hint"><Network size={13} /> Drag to wander · scroll to zoom</span></div>
           {busy && <div className="loading-cover"><div className="loading-mark"><LoaderCircle className="spin" size={24} /></div><span>Reopening your trail…</span></div>}
@@ -227,13 +236,16 @@ export default function App() {
           <div className="detail-topline"><span>FIELD GUIDE</span><button className="icon-button detail-close" onClick={() => setMobileDetail(false)} aria-label="Close details"><X size={17} /></button><button className="detail-back" onClick={() => setPage('archive')}><ArrowLeft size={13} /> Archive</button></div>
           {selected ? <>
             <div className="detail-domain"><span className="domain-orbit" />{selected.domain.toUpperCase()}</div>
+            {selected.stage && <div className="story-chips"><span className="stage-chip">{selected.stage.toUpperCase()}</span>{selected.evidence && <span className={`evidence-chip evidence-${selected.evidence}`}>{EVIDENCE_LABELS[selected.evidence] ?? selected.evidence}</span>}</div>}
             <h2>{selected.title}</h2>
             <p className="detail-summary">{selected.summary}</p>
             <section className="detail-section"><div className="section-label"><span>THE CONNECTION</span><span className="section-rule" /></div><p>{selected.connection_reason}</p></section>
-            <section className="detail-section next-question"><div className="section-label"><span>KEEP ASKING</span><Sparkles size={13} /></div><p>{selected.exploration_question}</p></section>
+            {selected.exploration_question && <section className="detail-section next-question"><div className="section-label"><span>{selected.stage === 'exit' ? 'STILL OPEN' : 'KEEP ASKING'}</span><Sparkles size={13} /></div><p>{selected.exploration_question}</p></section>}
             <section className="detail-section path-section"><div className="section-label"><span>YOUR TRAIL</span><span className="section-rule" /></div><div className="breadcrumb-path">{breadcrumb.map((item, index) => <span key={item.id} className={index === breadcrumb.length - 1 ? 'crumb current-crumb' : 'crumb'}>{index > 0 && <ArrowRight size={10} />}{item.title}</span>)}</div></section>
             <section className="detail-section sources-section"><div className="section-label"><span>SOURCES ON THIS CONCEPT</span><span className="source-count">{selected.sources.length}</span></div>
-              {selected.sources.length ? selected.sources.map((source) => <a className="source-link" href={source.url} target="_blank" rel="noreferrer" key={source.id}><span><strong>{source.publisher || source.title}</strong>{source.title !== source.publisher && <small>{source.title}</small>}{source.citation_text && <small className="citation">“{source.citation_text}”</small>}</span><ExternalLink size={13} /></a>)
+              {selected.sources.length ? selected.sources.map((source) => <a className="source-link" href={source.url} target="_blank" rel="noreferrer" key={source.id}><span><strong>{source.publisher || source.title}</strong>{source.title !== source.publisher && <small>{source.title}</small>}{source.citation_text && <small className="citation">“{source.citation_text}”</small>}{(source.medium || source.creator || source.published) && <small className="source-meta">{[source.medium, source.creator, source.published].filter(Boolean).join(' · ')}</small>}</span><ExternalLink size={13} /></a>)
+                : graph.slug
+                  ? <p className="no-sources">{selected.stage === 'hook' || selected.stage === 'exit' ? 'Sources sit on the discoveries along this trail.' : 'No source here: read this as ' + (EVIDENCE_LABELS[selected.evidence ?? ''] ?? 'unverified').toLowerCase() + '.'}</p>
                 : selected.parent_id === null
                   ? <p className="no-sources is-root">Ronin searches for sources on each branch, not on the starting question.{graph.metrics.unique_sources ? ` ${graph.metrics.unique_sources} unique ${graph.metrics.unique_sources === 1 ? 'source is' : 'sources are'} linked across ${graph.metrics.sourced_nodes} ${graph.metrics.sourced_nodes === 1 ? 'branch' : 'branches'} of this map.` : ''}</p>
                   : <p className="no-sources">Search grounding returned no citation clearly tied to this concept, so none is shown.{graph.metrics.unique_sources ? ` ${graph.metrics.sourced_nodes} other ${graph.metrics.sourced_nodes === 1 ? 'concept has' : 'concepts have'} sources.` : ''}</p>}
@@ -241,7 +253,7 @@ export default function App() {
             {readOnly ? <div className="detail-actions">
               {children.length > 0
                 ? <button className="explore-button" onClick={() => setExpandFocus((current) => ({ nodeId: selected.id, revision: (current?.revision ?? 0) + 1 }))}>Show these trails <ArrowRight size={15} /></button>
-                : <p className="showcase-note">This trail ends here in the showcase. Exploring further needs a local Ronin with a Gemini key.</p>}
+                : <p className="showcase-note">{graph.slug ? 'The trail ends here, for now.' : 'This trail ends here in the showcase. Exploring further needs a local Ronin with a Gemini key.'}</p>}
               {children.length > 0 && <div className="child-count-note"><GitBranch size={13} /> {children.length} saved {children.length === 1 ? 'path' : 'paths'} branch from here</div>}
             </div> : <div className="detail-actions">
               <button className="explore-button" onClick={() => expandSelected()} disabled={busyNodeId === selected.id}>{busyNodeId === selected.id ? <><LoaderCircle className="spin" size={15} /> Following the thread…</> : <>{children.length ? 'Open these trails' : 'Explore further'} <ArrowRight size={15} /></>}</button>

@@ -380,6 +380,15 @@ kbd { font: 9px var(--mono); color: #777367; border: 1px solid #49453d; padding:
   .leap-preview { max-width: 360px; }
 }
 
+.story-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; }
+.stage-chip, .evidence-chip { padding: 3px 7px; border: 1px solid #4b4a3f; font: 9px var(--mono); letter-spacing: .7px; color: #b1aa99; }
+.evidence-fact { border-color: var(--rust); color: var(--rust-bright); }
+.evidence-claim { border-color: #887358; color: #d9cfba; }
+.evidence-interpretation, .evidence-speculation { border-color: var(--indigo); color: #b9b8cc; }
+.evidence-speculation { border-style: dashed; }
+.evidence-open { color: var(--muted); }
+.source-link small.source-meta { color: #a49070; }
+
 @media (max-width: 1260px) {
   .app-shell { grid-template-columns: 220px minmax(390px, 1fr) 292px; }
   .sidebar { padding-right: 12px; padding-left: 12px; }
