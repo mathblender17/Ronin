@@ -14,9 +14,15 @@ def test_clean_waypoints_falls_back_to_middle() -> None:
     assert clean_waypoints(["Nope"], ["A", "B", "C"]) == ["B"]
 
 
-def test_leap_copy_rejects_long_hook() -> None:
+def test_leap_copy_rejects_blank_hook() -> None:
     with pytest.raises(ValidationError):
-        LeapCopy(index=0, hook=" ".join(["w"] * 13), reframe="ok", waypoints=[])
+        LeapCopy(index=0, hook="   ", reframe="ok", waypoints=[])
+
+
+def test_leap_copy_keeps_overlong_text_for_the_user_to_edit() -> None:
+    # Live Gemini wrote a 26-word reframe; rejecting it threw away a usable leap.
+    leap = LeapCopy(index=0, hook=" ".join(["w"] * 13), reframe=" ".join(["w"] * 26), waypoints=[])
+    assert len(leap.reframe.split()) == 26
 
 
 def test_generate_leap_copy_filters_waypoints(monkeypatch: pytest.MonkeyPatch) -> None:

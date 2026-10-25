@@ -144,20 +144,6 @@ class LeapCopy(BaseModel):
             raise ValueError("Leap text cannot be blank.")
         return value
 
-    @field_validator("hook")
-    @classmethod
-    def short_hook(cls, value: str) -> str:
-        if len(value.split()) > 12:
-            raise ValueError("A hook is at most 12 words.")
-        return value
-
-    @field_validator("reframe")
-    @classmethod
-    def short_reframe(cls, value: str) -> str:
-        if len(value.split()) > 25:
-            raise ValueError("A reframe is at most 25 words.")
-        return value
-
 
 class LeapCopyLayer(BaseModel):
     leaps: list[LeapCopy] = Field(min_length=1, max_length=3)
