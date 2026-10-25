@@ -56,3 +56,14 @@ def test_zero_vector_does_not_crash() -> None:
     vectors = {id: [0.3, 0.3, 0.3] for id in trail()}
     scored = score_paths(trail(), vectors)
     assert [p.score for p in scored] == [0.0, 0.0]
+
+
+def test_report_markdown_has_label_column() -> None:
+    from backend.benchmark.leaps import report_markdown
+
+    scored = ScoredPath("a1", ["r", "a", "a1"], 0.9, 0.8, 0.72)
+    report = report_markdown([("Why rumours?", [(["Why rumours?", "Gossip", "Railways"], scored)])])
+    assert "| end_distance | weakest_hop | score | path | label |" in report
+    row = next(line for line in report.splitlines() if "Gossip" in line)
+    assert "Why rumours? → Gossip → Railways" in row
+    assert row.endswith("|  |")
