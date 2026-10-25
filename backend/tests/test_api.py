@@ -398,3 +398,35 @@ def test_leaps_bad_copy_indexes_is_503(client: TestClient, monkeypatch: pytest.M
     monkeypatch.setattr(ai, "generate_leap_copy", lambda _question, _paths: [LeapCopy(index=7, hook="h", reframe="r", waypoints=[])])
     response = client.post(f"/api/rabbit-holes/{graph['id']}/leaps", json={})
     assert response.status_code == 503
+
+
+def import_authored(client: TestClient) -> dict:
+    from backend import studio
+    from backend.story import parse_story
+    from backend.tests.test_story import SLUG, VALID
+
+    db = next(app.dependency_overrides[get_db]())
+    hole = studio.import_story(db, parse_story(VALID, SLUG))
+    return client.get(f"/api/rabbit-holes/{hole.id}").json()
+
+
+def test_authored_trail_exposes_stage_evidence_and_source_meta(client: TestClient) -> None:
+    graph = import_authored(client)
+    by_parent = {node["parent_id"]: node for node in graph["nodes"]}
+    stages, parent = [], None
+    while parent in by_parent:
+        stages.append(by_parent[parent]["stage"])
+        parent = by_parent[parent]["id"]
+    assert stages == ["hook", "entry", "descent", "descent", "leap", "exit"]
+    leap = next(node for node in graph["nodes"] if node["stage"] == "leap")
+    entry = next(node for node in graph["nodes"] if node["stage"] == "entry")
+    assert leap["evidence"] == "interpretation"
+    assert entry["sources"][0]["medium"] == "archive" and entry["sources"][0]["published"] == "2003-05-01"
+    assert graph["slug"] == "early-japanese-web" and graph["territory"] == "Internet archaeology"
+    assert not any(node["explored"] for node in graph["nodes"])
+
+
+def test_check_note_never_in_api(client: TestClient) -> None:
+    graph = import_authored(client)
+    response = client.get(f"/api/rabbit-holes/{graph['id']}")
+    assert "verify before publishing" not in response.text

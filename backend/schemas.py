@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
@@ -10,6 +10,9 @@ class SourceOut(BaseModel):
     url: HttpUrl
     publisher: str
     citation_text: str = ""
+    medium: str | None = None
+    creator: str | None = None
+    published: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -25,6 +28,8 @@ class NodeOut(BaseModel):
     explored: bool
     created_at: datetime
     sources: list[SourceOut] = Field(default_factory=list)
+    stage: str | None = None
+    evidence: str | None = None
 
 
 class MetricsOut(BaseModel):
@@ -53,6 +58,9 @@ class GraphOut(BaseModel):
     question: str
     created_at: datetime
     updated_at: datetime
+    slug: str | None = None
+    territory: str | None = None
+    published_at: date | None = None
     nodes: list[NodeOut]
     edges: list[GraphEdgeOut]
     metrics: MetricsOut

@@ -67,9 +67,12 @@ def _node_out(node: Node) -> NodeOut:
         connection_reason=node.connection_reason,
         exploration_question=node.exploration_question,
         domain=node.domain,
-        explored=node.explored_at is not None or bool(node.children),
+        # An authored chain has children everywhere, so only a real visit counts there.
+        explored=node.explored_at is not None or (node.stage is None and bool(node.children)),
         created_at=node.created_at,
         sources=[SourceOut.model_validate(source) for source in node.sources],
+        stage=node.stage,
+        evidence=node.evidence,
     )
 
 
@@ -140,6 +143,9 @@ def _graph(hole: RabbitHole) -> GraphOut:
         question=hole.question,
         created_at=hole.created_at,
         updated_at=hole.updated_at,
+        slug=hole.slug,
+        territory=hole.territory,
+        published_at=hole.published_at,
         nodes=[_node_out(node) for node in nodes],
         edges=[
             GraphEdgeOut(
