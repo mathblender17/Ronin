@@ -128,3 +128,56 @@ class ExpansionLayer(BaseModel):
         max_length=5,
         description="Three to five distinct child concepts attached to the selected parent.",
     )
+
+
+class LeapCopy(BaseModel):
+    index: int
+    hook: str = Field(description="At most 12 words: the 'wait, what?' line about how the first title led to the last.")
+    reframe: str = Field(description="At most 25 words: why the leap makes sense, phrased as an interpretation.")
+    waypoints: list[str] = Field(description="Two or three titles copied exactly from the path's middle steps.")
+
+    @field_validator("hook", "reframe")
+    @classmethod
+    def trim_text(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Leap text cannot be blank.")
+        return value
+
+    @field_validator("hook")
+    @classmethod
+    def short_hook(cls, value: str) -> str:
+        if len(value.split()) > 12:
+            raise ValueError("A hook is at most 12 words.")
+        return value
+
+    @field_validator("reframe")
+    @classmethod
+    def short_reframe(cls, value: str) -> str:
+        if len(value.split()) > 25:
+            raise ValueError("A reframe is at most 25 words.")
+        return value
+
+
+class LeapCopyLayer(BaseModel):
+    leaps: list[LeapCopy] = Field(min_length=1, max_length=3)
+
+
+class LeapRequest(BaseModel):
+    node_id: str | None = None
+
+
+class LeapCandidateOut(BaseModel):
+    node_id: str
+    path: list[str]
+    waypoints: list[str]
+    hook: str
+    reframe: str
+    score: float | None
+    hops: int
+    domains: int
+
+
+class LeapsOut(BaseModel):
+    ranked: bool
+    candidates: list[LeapCandidateOut]

@@ -13,11 +13,11 @@ from typing import Any
 from dotenv import load_dotenv
 from google import genai
 from google.genai import errors, types
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from . import ai_providers as providers
 from .database import ROOT_DIR
-from .schemas import ExpansionLayer, GeneratedConcept, InitialLayer
+from .schemas import ExpansionLayer, GeneratedConcept, InitialLayer, LeapCopy, LeapCopyLayer
 
 load_dotenv(ROOT_DIR / ".env")
 logger = logging.getLogger("ronin.ai")
@@ -164,7 +164,7 @@ def _classify_gemini(exc: errors.APIError) -> providers.ProviderError:
     return providers.ProviderError(providers.UNAVAILABLE, "Gemini could not complete this request. Retrying.")
 
 
-def _gemini_text(prompt: str, schema: type[InitialLayer] | type[ExpansionLayer], model: str, settings: AISettings) -> str:
+def _gemini_text(prompt: str, schema: type[BaseModel], model: str, settings: AISettings) -> str:
     client = _client()  # AIConfigurationError here means Gemini is not set up; the router skips it.
     try:
         response = client.models.generate_content(
@@ -199,7 +199,7 @@ def _enforce_policy(provider: str, model: str, settings: AISettings) -> None:
     providers.approved_openrouter_model(model, allow_paid=settings.allow_paid, named_explicitly=model in settings.openrouter_models)
 
 
-def _call(provider: str, model: str, prompt: str, schema: type[InitialLayer] | type[ExpansionLayer], settings: AISettings) -> Any:
+def _call(provider: str, model: str, prompt: str, schema: type[BaseModel], settings: AISettings) -> Any:
     try:
         if provider == "gemini":
             text = _gemini_text(prompt, schema, model, settings)
@@ -264,7 +264,7 @@ def _retry_delay(error: providers.ProviderError, attempt: int) -> float | None:
     return min(BACKOFF_CAP_SECONDS, BACKOFF_BASE_SECONDS * (2 ** attempt)) * _jitter.uniform(0.5, 1.0)
 
 
-def _structured_with_provider(prompt: str, schema: type[InitialLayer] | type[ExpansionLayer]) -> tuple[Any, str]:
+def _structured_with_provider(prompt: str, schema: type[BaseModel]) -> tuple[Any, str]:
     """Try each configured provider and model in order, with bounded retries. Returns the validated layer and its provider."""
     settings = load_settings()
     failures: list[tuple[str, str, providers.ProviderError]] = []
@@ -347,7 +347,7 @@ def _failure_error(failures: list[tuple[str, str, providers.ProviderError]], rea
     )
 
 
-def _structured(prompt: str, schema: type[InitialLayer] | type[ExpansionLayer]) -> Any:
+def _structured(prompt: str, schema: type[BaseModel]) -> Any:
     value, _provider = _structured_with_provider(prompt, schema)
     return value
 
@@ -578,3 +578,61 @@ Follow the user's direction when one is given, while keeping every child attache
     if len(branches) < 3:
         raise AIServiceError("The AI suggested too few new directions. Try a more specific follow-up or retry.")
     return LayerResult(branches[:5], source_map=_source_map_for(question, branches[:5]))
+
+
+EMBEDDING_MODEL = "gemini-embedding-001"
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Gemini embeddings for leap scoring. Any failure becomes AIServiceError so callers can fall back to an unranked leap."""
+    client = _client()
+    try:
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), 100):
+            response = client.models.embed_content(
+                model=EMBEDDING_MODEL, contents=texts[start:start + 100],
+                config=types.EmbedContentConfig(task_type="SEMANTIC_SIMILARITY"),
+            )
+            vectors += [list(item.values) for item in response.embeddings]
+    except Exception as exc:
+        raise AIServiceError("Ronin could not compare the concepts in this trail right now.", technical=str(exc)) from exc
+    finally:
+        client.close()
+    return vectors
+
+
+def clean_waypoints(proposed: list[str], interior: list[str]) -> list[str]:
+    """Keep only titles that really sit inside the path, so a card never shows an invented step."""
+    real = {" ".join(title.split()): title for title in interior}
+    kept = [real[key] for title in proposed if (key := " ".join(title.split())) in real]
+    kept = list(dict.fromkeys(kept))[:3]
+    return kept or [interior[len(interior) // 2]]
+
+
+def generate_leap_copy(question: str, paths: list[list[tuple[str, str]]]) -> list[LeapCopy]:
+    """Write a hook and a reframing line for each root → node path. Each path is (title, connection_reason), root first."""
+    blocks = "\n\n".join(
+        f"Path {index}:\n" + "\n".join(f"- {title} (link to previous: {reason})" for title, reason in path)
+        for index, path in enumerate(paths)
+    )
+    prompt = f"""You are Ronin. A person started with the question "{question}" and followed each path below, one step at a time, to its last title.
+
+For each path, write:
+- hook: at most 12 words. The "wait, what?" line about how the first title led to the last. Name both ends concretely.
+- reframe: at most 25 words. Why the leap makes sense once you see the steps. Phrase it as an interpretation, not a proven fact.
+- waypoints: two or three titles copied exactly from that path's middle steps (not the first or last title).
+
+Use only the titles and links given. Do not invent facts, people, dates, or sources.
+
+{blocks}
+
+Return JSON only, in this shape, with one entry per path and its index:
+{{"leaps": [{{"index": 0, "hook": "...", "reframe": "...", "waypoints": ["..."]}}]}}"""
+    _local.provider = None
+    result: LeapCopyLayer = _structured(prompt, LeapCopyLayer)
+    leaps = []
+    for leap in result.leaps:
+        if 0 <= leap.index < len(paths):
+            interior = [title for title, _reason in paths[leap.index][1:-1]]
+            leaps.append(leap.model_copy(update={"waypoints": clean_waypoints(leap.waypoints, interior)}))
+    return leaps
