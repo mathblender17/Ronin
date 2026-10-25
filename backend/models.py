@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -12,12 +12,17 @@ def utcnow() -> datetime:
 
 class RabbitHole(Base):
     __tablename__ = "rabbit_holes"
+    __table_args__ = (Index("uq_rabbit_holes_slug", "slug", unique=True),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     question: Mapped[str] = mapped_column(String(500), nullable=False)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    # Set only for authored stories (backend/story.py); question-driven trails leave them empty.
+    slug: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    published_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    territory: Mapped[str | None] = mapped_column(String(100), nullable=True)
     nodes: Mapped[list["Node"]] = relationship(back_populates="rabbit_hole", cascade="all, delete-orphan")
     edges: Mapped[list["Edge"]] = relationship(back_populates="rabbit_hole", cascade="all, delete-orphan")
 
@@ -41,6 +46,10 @@ class Node(Base):
     domain: Mapped[str] = mapped_column(String(100), nullable=False)
     explored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    stage: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    evidence: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # The author's private note. Never published, never returned by the API.
+    check_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     rabbit_hole: Mapped[RabbitHole] = relationship(back_populates="nodes")
     parent: Mapped["Node | None"] = relationship(remote_side="Node.id", back_populates="children")
@@ -71,6 +80,9 @@ class Source(Base):
     url: Mapped[str] = mapped_column(String(2000), unique=True, nullable=False)
     publisher: Mapped[str] = mapped_column(String(200), nullable=False)
     citation_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    medium: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    creator: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    published: Mapped[str | None] = mapped_column(String(10), nullable=True)
     nodes: Mapped[list[Node]] = relationship(secondary="node_sources", back_populates="sources")
 
 

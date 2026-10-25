@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from . import ai, leaps
-from .database import ROOT_DIR, Base, SessionLocal, engine
+from .database import ROOT_DIR, Base, SessionLocal, add_missing_columns, engine
 from .models import Edge, Node, RabbitHole, Source, utcnow
 from .schemas import (
     CreateRequest,
@@ -30,6 +30,7 @@ from .schemas import (
 )
 
 Base.metadata.create_all(bind=engine)
+add_missing_columns(engine)
 app = FastAPI(title="Ronin API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
