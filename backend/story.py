@@ -100,6 +100,8 @@ class _Draft:
             raise StoryError(self.line, f"'{self.title}' is missing why:")
         if self.evidence in ("fact", "claim") and not self.sources:
             raise StoryError(self.line, f"'{self.title}' is a {self.evidence} and needs a source")
+        if self.evidence == "fact" and all(source.medium == "reddit" for source in self.sources):
+            raise StoryError(self.line, f"'{self.title}' cites only Reddit: an anonymous anecdote is a claim, not a fact")
         return Discovery(self.title, self.evidence, self.why, "\n".join(self.body), self.sources, self.check)
 
 
@@ -182,6 +184,9 @@ def parse_story(text: str, slug: str) -> Story:
             current.sources.append(_source(line, offset))
         elif line == "sources:":
             current.in_sources = True
+        elif current.body and line.startswith(("evidence:", "why:", "check:")):
+            # Loud, not silent: a body line read as a field would replace the reframe or hide text as a private note.
+            raise StoryError(offset, f"'{line.partition(':')[0]}:' lines go before the body text; rephrase a body line that starts this way")
         elif line.startswith("evidence:"):
             value = line.partition(":")[2].strip()
             if value not in EVIDENCE:

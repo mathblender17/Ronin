@@ -18,10 +18,19 @@ export function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth:
   let line = ''
   for (const word of text.split(/\s+/).filter(Boolean)) {
     const next = line ? `${line} ${word}` : word
-    if (line && ctx.measureText(next).width > maxWidth) {
-      lines.push(line)
-      line = word
-    } else line = next
+    if (ctx.measureText(next).width <= maxWidth) {
+      line = next
+      continue
+    }
+    if (line) lines.push(line)
+    line = ''
+    // A word wider than the card (Japanese has no spaces, URLs have none either) breaks between characters.
+    for (const char of word) {
+      if (line && ctx.measureText(line + char).width > maxWidth) {
+        lines.push(line)
+        line = char
+      } else line += char
+    }
   }
   if (line) lines.push(line)
   if (lines.length <= maxLines) return lines

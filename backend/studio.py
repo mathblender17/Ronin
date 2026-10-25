@@ -115,6 +115,8 @@ def compile_draft(slug: str, draft: DraftStory, finds: list[dict], drafted_by: s
         evidence, check = item.evidence, "verify before publishing"
         if evidence in ("fact", "claim") and not refs:
             evidence, check = "speculation", "needs a source; verify before publishing"
+        elif evidence == "fact" and all(ref.medium == "reddit" for ref in refs):
+            evidence = "claim"
         return Discovery(item.title, evidence, " ".join(item.why.split()), item.body.strip(), refs, check)
 
     entry, descent, leap = discovery(draft.entry), [discovery(item) for item in draft.descent], discovery(draft.leap)
@@ -223,6 +225,12 @@ def main(argv: list[str] | None = None, stories_dir: Path = STORIES_DIR) -> int:
         elif args.command == "publish":
             slugs = publish(stories_dir, SHOWCASE_DB, date.today())
             print(f"Published {len(slugs)} stories to showcase/ronin.db: {', '.join(slugs) or '(none)'}")
+            for slug in slugs:
+                story = load_story(slug, stories_dir)
+                count = sum(1 for item in [story.entry, *story.descent, story.leap] if item.check)
+                if count:
+                    # The notes themselves never ship; this flags beats the author has not signed off.
+                    print(f"Warning: {slug}: {count} unchecked discoveries still carry a check: note. Verify them before you deploy.")
     except StoryError as exc:
         print(f"stories/{slug}.md: {exc}" if args.command == "import" else f"stories/{exc}")
         return 1

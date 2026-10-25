@@ -100,3 +100,19 @@ def test_rule_violation_reports_line(name, mutate, needle, fragment) -> None:
         parse_story(text, SLUG)
     assert fragment in str(err.value)
     assert err.value.line == line_of(text, needle)
+
+
+def test_field_line_inside_body_is_an_error_not_an_overwrite() -> None:
+    text = VALID.replace("A pattern that repeats far beyond Japan.", "A pattern that repeats far beyond Japan.\nwhy: the letters were forged")
+    with pytest.raises(StoryError) as err:
+        parse_story(text, SLUG)
+    assert "before the body" in str(err.value)
+    assert err.value.line == line_of(text, "why: the letters were forged")
+
+
+def test_fact_cited_only_to_reddit_is_rejected() -> None:
+    text = VALID.replace("evidence: claim\nwhy: The homepage", "evidence: fact\nwhy: The homepage")
+    text = text.replace("- [A video essay](https://www.youtube.com/watch?v=xyz) · video\n", "")
+    with pytest.raises(StoryError) as err:
+        parse_story(text, SLUG)
+    assert "Reddit" in str(err.value)

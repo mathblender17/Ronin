@@ -179,6 +179,7 @@ def test_draft_writes_story_and_research(tmp_path: Path, drafting: dict) -> None
     assert story.drafted_by == "deepseek/deepseek-flash" and story.prompt == "draft-v1" and story.published is None
     assert story.note == "skipped: youtube: no key"
     assert story.entry.sources[0].url == FINDS[0].url and story.entry.check == "verify before publishing"
+    assert story.entry.evidence == "claim"  # a fact cited only to Reddit is downgraded
     research = json.loads((tmp_path / ".research" / "vanished.json").read_text(encoding="utf-8"))
     assert research["finds"][0]["url"] == FINDS[0].url and research["skipped"] == ["youtube: no key"]
 
@@ -214,3 +215,12 @@ def test_redraft_reuses_finds_without_search(tmp_path: Path, drafting: dict) -> 
     out = studio.redraft("vanished", model="kimi/kimi-k3.1-pro", out=tmp_path / "b.md", stories_dir=tmp_path)
     assert drafting["write"][-1] == ("kimi", "kimi-k3.1-pro")
     assert parse_story(out.read_text(encoding="utf-8"), "vanished").title == "A forum that vanished"
+
+
+def test_publish_warns_about_unverified_live_stories(tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    write_story(tmp_path, "live", "2026-10-01")
+    write_story(tmp_path, "draft", None)
+    monkeypatch.setattr(studio, "SHOWCASE_DB", tmp_path / "showcase.db")
+    assert studio.main(["publish"], stories_dir=tmp_path) == 0
+    out = capsys.readouterr().out
+    assert "live: 1 unchecked" in out and "draft" not in out.split("Warning")[-1]

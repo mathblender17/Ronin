@@ -105,3 +105,17 @@ def test_search_all_dedupes_caps_and_notes_skips(monkeypatch: pytest.MonkeyPatch
     other = Found("B", "https://example.org/b", "page", None, None, "")
     finds, _ = search_all(["q"], providers={"web": lambda query: [page, other]}, cap=1)
     assert len(finds) == 1
+
+
+def test_search_all_skips_a_provider_that_crashes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.sources import archive, search_all
+
+    monkeypatch.setattr(archive, "snapshots", lambda urls, **_kw: [])
+
+    def gemini_quota(query):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")  # stands in for google.genai.errors.APIError
+
+    page = Found("A page", "https://example.org/a", "page", "example.org", None, "")
+    finds, notes = search_all(["q1", "q2"], providers={"web": gemini_quota, "youtube": lambda query: [page]})
+    assert [f.url for f in finds] == ["https://example.org/a"]
+    assert notes == ["web: RuntimeError"]

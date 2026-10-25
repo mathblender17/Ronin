@@ -24,7 +24,6 @@ def search_all(queries: list[str], *, providers: dict | None = None, cap: int = 
 
     Returns (finds, notes): finds deduplicated by URL and capped; notes name each provider that was skipped, once.
     """
-    import httpx
 
     from . import archive, reddit, web, youtube
 
@@ -41,7 +40,7 @@ def search_all(queries: list[str], *, providers: dict | None = None, cap: int = 
             except SourceUnavailable as exc:
                 skipped.add(name)
                 notes.append(f"{name}: {exc}")
-            except httpx.HTTPError as exc:
+            except Exception as exc:  # any provider failure (HTTP, quota, bad JSON) skips that provider, never the draft
                 skipped.add(name)
                 notes.append(f"{name}: {type(exc).__name__}")
     finds += archive.snapshots([item.url for item in finds if item.medium == "page"])
