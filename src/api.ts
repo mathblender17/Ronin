@@ -1,4 +1,4 @@
-import type { Graph, RabbitHoleSummary } from './types'
+import type { Graph, Leaps, RabbitHoleSummary } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -30,4 +30,5 @@ export const api = {
     { method: 'POST', body: JSON.stringify(direction ? { direction } : {}) },
   ),
   remove: (id: string) => request<void>(`/api/rabbit-holes/${id}`, { method: 'DELETE' }),
+  leaps: (id: string, nodeId?: string) => request<Leaps>(`/api/rabbit-holes/${id}/leaps`, { method: 'POST', body: JSON.stringify(nodeId ? { node_id: nodeId } : {}) }),
 }

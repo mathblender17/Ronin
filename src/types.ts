@@ -55,3 +55,16 @@ export type RabbitHoleSummary = Omit<Graph, 'nodes' | 'edges' | 'metrics'> & {
   max_depth: number
   first_level_branches: number
 }
+
+export type LeapCandidate = {
+  node_id: string
+  path: string[]
+  waypoints: string[]
+  hook: string
+  reframe: string
+  score: number | null
+  hops: number
+  domains: number
+}
+
+export type Leaps = { ranked: boolean; candidates: LeapCandidate[] }
