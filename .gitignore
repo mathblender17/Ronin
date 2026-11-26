@@ -12,6 +12,7 @@ dist/
 .vite/
 outputs/*.md
 !outputs/example_report.md
+spike/out/
 
 # Local research dossiers from the studio draft step: never committed or published.
 stories/.research/

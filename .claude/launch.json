@@ -1,0 +1,39 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "backend.main:app",
+        "--port",
+        "8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "api-showcase",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-c",
+        "import os; os.environ['RONIN_READ_ONLY']='1'; os.environ['RONIN_DATABASE_URL']='sqlite:///showcase/ronin.db'; import uvicorn; uvicorn.run('backend.main:app', port=8000)"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5180",
+        "--strictPort"
+      ],
+      "port": 5180
+    }
+  ]
+}
